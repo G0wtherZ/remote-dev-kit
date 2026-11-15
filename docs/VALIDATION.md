@@ -1,0 +1,39 @@
+# Alpha 验证范围
+
+版本：`0.1.0-alpha.1`。以下是开发验收摘要，不包含个人机器路径、服务器地址、
+SSH 主机密钥、设备标识、会话凭据或原始日志。
+
+| 项目 | 验证情况 |
+| --- | --- |
+| Go 自动化检查 | `go test -race ./...`：14 项通过，真实 Chrome 测试默认跳过；`go vet ./...` 通过 |
+| 真实 Chrome | 单独启用集成测试，验证导航、截图、点击、输入和查看器认证 |
+| 官方 DevTools MCP | 工具发现、页面列表、导航、控制台日志、截图通过；运行环境为本机独立 Chrome |
+| macOS ARM64 → Ubuntu x64 | 私网 SSH、FUSE 实时文件读写、含空格和中文路径、共享启停通过 |
+| 本机端口授权 | TCP 往返、仅远端回环监听、提前撤销后不可连接通过 |
+| 后台服务 | 共享关闭后移除自启动、repair 不擅自重开共享通过 |
+| 用户态网络冷启动 | 私有本地 API 可用、未改变系统路由、退出后子进程监听关闭通过 |
+| 普通 Linux 用户 | 隔离 Ubuntu 容器内验证创建、密钥登录、参数及工作目录、拒绝 root 启动 Claude |
+| 初始安装器 | 隔离 Home 内验证安装、PATH、计划模式与自定义目录；没有连接用户提供的新服务器 |
+| 构建 | Darwin、Windows、Linux 的 ARM64/AMD64 六种程序交叉构建完成 |
+| 发布包 | 四种本机安装包逐文件 SHA-256 校验；排除私有状态、日志、身份和个人环境标记 |
+
+未完成的实机验收：Windows、远端 macOS、其他 Linux 发行版、完整重启与休眠恢复。
+没有使用真实 Claude 账号调用模型，也没有验证真实 `@` 补全、物理 USB、烧录、JTAG/SWD 或 Xcode。
+浏览器本机集成测试通过不代表 Linux VPS 上的 Chrome 系统依赖已经验收。
+
+复现基础检查：
+
+```sh
+go test -race ./...
+go vet ./...
+python3 scripts/build.py --target darwin-arm64 --target windows-amd64
+python3 scripts/test_install.py
+```
+
+单独启用 Chrome 集成测试（需要普通用户、本机 Chrome，以及已经构建的本机程序）：
+
+```sh
+RDEV_TEST_BINARY="$PWD/dist/assets/rdev/darwin-arm64/rdev" go test -run TestRealBrowserViewer -v
+```
+
+将示例二进制路径替换为实际本机平台；不要以 root 执行浏览器测试。

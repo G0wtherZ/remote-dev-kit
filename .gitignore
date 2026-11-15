@@ -1,0 +1,14 @@
+/dist/
+/evidence/
+__pycache__/
+*.test
+*.test.exe
+.DS_Store
+.env
+.env.*
+!.env.example
+/.rdev/
+*.pem
+*.key
+id_ed25519*
+id_rsa*
