@@ -10,7 +10,7 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "0.1.0-alpha.2"
+VERSION = "0.1.0-alpha.3"
 ARCH = {"arm64": "arm64", "x86_64": "amd64"}.get(platform.machine())
 ARCHIVE = ROOT / "dist" / f"remote-dev-kit-{VERSION}-darwin-{ARCH}.tar.gz"
 
@@ -31,7 +31,7 @@ class InstallerTest(unittest.TestCase):
         curl.write_text("#!/usr/bin/env python3\n" + '''import hashlib, os, pathlib, sys
 args = sys.argv[1:]
 url = next(x for x in args if x.startswith('https://'))
-assert url.startswith('https://github.com/G0wtherZ/remote-dev-kit/releases/download/v0.1.0-alpha.2/')
+assert url.startswith('https://github.com/G0wtherZ/remote-dev-kit/releases/download/v0.1.0-alpha.3/')
 dest = pathlib.Path(args[args.index('-o') + 1])
 source = pathlib.Path(os.environ['RDEV_TEST_ARCHIVE'])
 mode = os.environ.get('RDEV_TEST_TRANSPORT', '')

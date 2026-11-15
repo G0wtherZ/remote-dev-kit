@@ -2,7 +2,7 @@
 # Download a pinned macOS release, verify it, and start the interactive setup.
 set -euo pipefail
 
-version='0.1.0-alpha.2'
+version='0.1.0-alpha.3'
 base="https://github.com/G0wtherZ/remote-dev-kit/releases/download/v${version}"
 if [[ "$(uname -s)" != Darwin ]]; then
   echo 'Run this installer on your local Mac. Windows: use install.ps1; the wizard sets up the remote Linux/macOS host.' >&2
