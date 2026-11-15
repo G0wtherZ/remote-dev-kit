@@ -4,29 +4,29 @@
 私网引导、专用目录的真实 SFTP/SSHFS 挂载、原生 Claude 终端，以及独立远端浏览器。
 Claude Code 可预装、后装或不装；本工具不修改它的二进制、账号或对话管理界面。
 
-这是 **0.1.0-alpha.2**：适合试用，尚不是全平台稳定版。平台构建不代表实机验收，
+这是 **0.1.0-alpha.3**：适合试用，尚不是全平台稳定版。平台构建不代表实机验收，
 具体范围见 [验证记录](docs/VALIDATION.md)。首版未签名、未公证，不会自动关闭系统保护。
 
 ## 一键下载、安装并启动向导
 
 **在本机执行**，不需要先在 VPS 上安装本项目，也不需要 Go、Python 或 Docker。
 脚本自动识别 CPU 架构，下载固定版本安装包，检查 SHA-256，再启动 setup。
-以下命令固定到 `v0.1.0-alpha.2`，不会静默安装后续版本。
+以下命令固定到 `v0.1.0-alpha.3`，不会静默安装后续版本。
 
 macOS（iTerm2、Terminal 等均可）：
 
 ```sh
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/G0wtherZ/remote-dev-kit/v0.1.0-alpha.2/install.sh)"
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/G0wtherZ/remote-dev-kit/v0.1.0-alpha.3/install.sh)"
 ```
 
 Windows PowerShell（5.1 或 7）：
 
 ```powershell
-irm https://raw.githubusercontent.com/G0wtherZ/remote-dev-kit/v0.1.0-alpha.2/install.ps1 | iex
+irm https://raw.githubusercontent.com/G0wtherZ/remote-dev-kit/v0.1.0-alpha.3/install.ps1 | iex
 ```
 
 这会执行本项目公开的安装脚本，可先查看 [macOS 脚本](install.sh) 或
-[Windows 脚本](install.ps1)。也可从 [Release 页面](https://github.com/G0wtherZ/remote-dev-kit/releases/tag/v0.1.0-alpha.2)
+[Windows 脚本](install.ps1)。也可从 [Release 页面](https://github.com/G0wtherZ/remote-dev-kit/releases/tag/v0.1.0-alpha.3)
 手动下载、核对 `SHA256SUMS` 后解压。在解压目录执行 `./setup.sh`（Mac）或
 `.\setup.ps1`（Windows）。不需要以管理员身份运行本机安装器。
 

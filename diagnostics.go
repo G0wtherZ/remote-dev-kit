@@ -164,17 +164,18 @@ func checkLocalShare(c Config) error {
 // For macOS removable mounts, pin the volume UUID rather than the mutable name.
 // Other platforms retain their normal directory grant; no USB pass-through is implied.
 func localVolumeIdentity(root string) (string, error) {
-	if runtime.GOOS != "darwin" || !strings.HasPrefix(root, "/Volumes/") {
+	const prefix = "/Volumes/"
+	if runtime.GOOS != "darwin" || len(root) < len(prefix) || !strings.EqualFold(root[:len(prefix)], prefix) {
 		return "", nil
 	}
-	parts := strings.Split(strings.TrimPrefix(root, "/Volumes/"), string(filepath.Separator))
+	parts := strings.Split(root[len(prefix):], string(filepath.Separator))
 	volume := "/Volumes/" + parts[0]
 	b, e := capture("diskutil", []string{"info", "-plist", volume}, nil)
 	if e != nil {
 		return "", errors.New("原外接磁盘未挂载，不会创建同名空目录")
 	}
 	mount, e := capture("plutil", []string{"-extract", "MountPoint", "raw", "-o", "-", "-"}, b)
-	if e != nil || strings.TrimSpace(string(mount)) != volume {
+	if e != nil || !strings.EqualFold(strings.TrimSpace(string(mount)), volume) {
 		return "", errors.New("共享路径不是已挂载的原磁盘")
 	}
 	uuid, e := capture("plutil", []string{"-extract", "VolumeUUID", "raw", "-o", "-", "-"}, b)
