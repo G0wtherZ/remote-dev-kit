@@ -13,7 +13,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "dist"
-VERSION = "0.1.0-alpha.1"
+VERSION = "0.1.0-alpha.2"
 TAILSCALE = "v1.104.7"
 TARGETS = ["darwin-arm64", "darwin-amd64", "windows-amd64", "windows-arm64", "linux-amd64", "linux-arm64"]
 

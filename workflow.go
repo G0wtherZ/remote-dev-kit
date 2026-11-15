@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -11,7 +12,6 @@ import (
 	"os/signal"
 	"runtime"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -22,7 +22,15 @@ func (a *App) terminal(kind string, args []string) error {
 	}
 	if kind == "claude" && c.AutoShare {
 		if e = a.share([]string{"on"}); e != nil {
-			return e
+			fmt.Fprintf(os.Stderr, "本机共享未就绪：%v\n", e)
+			p := &Prompter{bufio.NewReader(os.Stdin)}
+			ok, err := p.yes("本次不等待共享恢复，继续远端工作（已有授权不变）", false)
+			if err != nil {
+				return e
+			}
+			if !ok {
+				return e
+			}
 		}
 	}
 	return interactive("ssh", append(a.sshArgs(c, true), shellJoin(append([]string{c.RemoteBinary, "remote", "terminal", c.RemoteRoot, kind}, args...))))
@@ -34,6 +42,35 @@ func (a *App) reconnect(args []string) error {
 	}
 	return interactive("ssh", append(a.sshArgs(c, true), shellJoin([]string{c.RemoteBinary, "remote", "reconnect", c.RemoteRoot})))
 }
+func (a *App) refreshConnection(c *Config) error {
+	info, e := a.bootstrapProbe(*c)
+	if e != nil {
+		return fmt.Errorf("管理连接或远端助手不可用；助手损坏可运行 rdev reset：%w", e)
+	}
+	if info.NetworkState != "Running" {
+		return errors.New("远端 Tailscale 未就绪，请通过原 SSH 检查登录；未更改原网络设置")
+	}
+	address := ""
+	for _, ip := range info.IPs {
+		if v := net.ParseIP(ip); v != nil && v.To4() != nil {
+			address = ip
+			break
+		}
+	}
+	if address == "" {
+		return errors.New("远端没有私网地址")
+	}
+	next := *c
+	next.RemoteIP = address
+	if e = a.writeSSH(next, info.HostKey); e != nil {
+		return e
+	}
+	if e = a.save(next); e != nil {
+		return e
+	}
+	*c = next
+	return nil
+}
 func (a *App) repair() error {
 	c, e := a.load()
 	if e != nil {
@@ -44,65 +81,31 @@ func (a *App) repair() error {
 			return e
 		}
 	}
-	b, e := admin(c, []string{c.BootstrapBinary, "remote", "probe", c.RemoteRoot}, nil)
-	if e != nil {
-		return e
-	}
-	info, e := decode[RemoteInfo](b)
-	if e != nil {
-		return e
-	}
-	for _, ip := range info.IPs {
-		if v := net.ParseIP(ip); v != nil && v.To4() != nil {
-			c.RemoteIP = ip
-			break
-		}
-	}
-	if e = a.writeSSH(c, info.HostKey); e != nil {
-		return e
-	}
-	if e = a.save(c); e != nil {
+	if e = a.refreshConnection(&c); e != nil {
 		return e
 	}
 	if c.AutoShare {
+		b, err := a.remote(c, []string{"probe", c.RemoteRoot}, nil)
+		if err != nil {
+			return err
+		}
+		info, err := decode[RemoteInfo](b)
+		if err != nil {
+			return err
+		}
+		if info.Mounted && !info.MountReadable {
+			if err = stopManaged(a, "share"); err != nil {
+				return err
+			}
+			if _, err = a.remote(c, []string{"unmount", c.RemoteRoot}, nil); err != nil {
+				return fmt.Errorf("残留挂载仍被占用，未结束任何开发任务：%w", err)
+			}
+		}
 		if e = a.share([]string{"on"}); e != nil {
 			return e
 		}
 	}
 	return a.doctor(nil)
-}
-func (a *App) doctor(args []string) error {
-	c, e := a.load()
-	if e != nil {
-		return e
-	}
-	result := map[string]any{"local_root": c.LocalRoot, "remote_root": c.RemoteRoot, "network_mode": c.NetworkMode, "connection_ready": false, "claude_optional": true}
-	if b, e := a.ts(c, "status", "--json"); e == nil {
-		if n, e := decode[NetStatus](b); e == nil {
-			result["local_network"] = n.BackendState
-			result["local_network_health"] = n.Health
-		}
-	}
-	b, e := a.remote(c, []string{"probe", c.RemoteRoot}, nil)
-	if e != nil {
-		result["connection_error"] = e.Error()
-		output(result)
-		return errors.New("私网 SSH 尚未就绪")
-	}
-	info, e := decode[RemoteInfo](b)
-	if e != nil {
-		return e
-	}
-	result["remote"] = info
-	result["connection_ready"] = true
-	result["mount_ready"] = info.Tools["sshfs"] != ""
-	if info.OS == "darwin" {
-		result["macos_mount_note"] = "需要兼容 FSKit 的 macFUSE/SSHFS；本工具不会降低系统安全设置"
-	}
-	if info.UID == 0 {
-		result["account_note"] = "当前远端是 root；Claude 启动将被拒绝，请使用普通开发账户"
-	}
-	return output(result)
 }
 func (a *App) share(args []string) error {
 	c, e := a.load()
@@ -122,6 +125,20 @@ func (a *App) share(args []string) error {
 		if e != nil {
 			return e
 		}
+		if e = checkLocalShare(c); e != nil {
+			return e
+		}
+		if r.Mounted && r.MountReadable && managedRunning(a, "share") {
+			c.AutoShare = true
+			if e = a.save(c); e != nil {
+				return e
+			}
+			fmt.Println("共享已连接。")
+			return nil
+		}
+		if r.Mounted && !r.MountReadable {
+			return errors.New("发现不可读的残留挂载；运行 rdev repair 安全重建连接")
+		}
 		if r.Tools["sshfs"] == "" {
 			return errors.New("远端缺少 SSHFS；运行 rdev tools install base")
 		}
@@ -135,7 +152,7 @@ func (a *App) share(args []string) error {
 		for i := 0; i < 20; i++ {
 			b, err := a.remote(c, []string{"probe", c.RemoteRoot}, nil)
 			if err == nil {
-				if info, err := decode[RemoteInfo](b); err == nil && info.Mounted {
+				if info, err := decode[RemoteInfo](b); err == nil && info.Mounted && info.MountReadable {
 					fmt.Printf("已挂载 %s → %s/local\n", c.LocalRoot, c.RemoteRoot)
 					return nil
 				}
@@ -165,9 +182,25 @@ func (a *App) share(args []string) error {
 		if !c.AutoShare {
 			return nil
 		}
-		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		ctx, cancel := signal.NotifyContext(context.Background(), shutdownSignals()...)
 		defer cancel()
 		for ctx.Err() == nil {
+			c, e = a.load()
+			if e != nil {
+				return e
+			}
+			if !c.AutoShare {
+				return nil
+			}
+			if e = checkLocalShare(c); e != nil {
+				fmt.Fprintln(os.Stderr, e)
+				select {
+				case <-ctx.Done():
+					return nil
+				case <-time.After(3 * time.Second):
+					continue
+				}
+			}
 			cmd := exec.CommandContext(ctx, "ssh", append(a.sshArgs(c, false), shellJoin([]string{c.RemoteBinary, "remote", "mount", c.RemoteRoot}))...)
 			in, e := cmd.StdinPipe()
 			if e != nil {

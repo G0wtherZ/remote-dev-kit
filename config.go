@@ -14,26 +14,29 @@ import (
 
 type App struct{ State string }
 type Config struct {
-	Version         int    `json:"version"`
-	Name            string `json:"name"`
-	AdminSSH        string `json:"admin_ssh"`
-	AdminPort       int    `json:"admin_port,omitempty"`
-	LocalRoot       string `json:"local_root"`
-	RemoteRoot      string `json:"remote_root"`
-	RemoteBinary    string `json:"remote_binary"`
-	BootstrapBinary string `json:"bootstrap_binary"`
-	RemoteOS        string `json:"remote_os"`
-	RemoteArch      string `json:"remote_arch"`
-	RemoteIP        string `json:"remote_ip"`
-	RemoteUser      string `json:"remote_user,omitempty"`
-	Identity        string `json:"identity,omitempty"`
-	NetworkMode     string `json:"network_mode"`
-	Tailscale       string `json:"tailscale"`
-	Tailscaled      string `json:"tailscaled"`
-	Socket          string `json:"socket"`
-	SOCKS           string `json:"socks"`
-	Readonly        bool   `json:"readonly"`
-	AutoShare       bool   `json:"auto_share"`
+	Version              int    `json:"version"`
+	SetupStage           string `json:"setup_stage,omitempty"`
+	UserProvisionPending bool   `json:"user_provision_pending,omitempty"`
+	Name                 string `json:"name"`
+	AdminSSH             string `json:"admin_ssh"`
+	AdminPort            int    `json:"admin_port,omitempty"`
+	LocalRoot            string `json:"local_root"`
+	LocalVolume          string `json:"local_volume,omitempty"`
+	RemoteRoot           string `json:"remote_root"`
+	RemoteBinary         string `json:"remote_binary"`
+	BootstrapBinary      string `json:"bootstrap_binary"`
+	RemoteOS             string `json:"remote_os"`
+	RemoteArch           string `json:"remote_arch"`
+	RemoteIP             string `json:"remote_ip"`
+	RemoteUser           string `json:"remote_user,omitempty"`
+	Identity             string `json:"identity,omitempty"`
+	NetworkMode          string `json:"network_mode"`
+	Tailscale            string `json:"tailscale"`
+	Tailscaled           string `json:"tailscaled"`
+	Socket               string `json:"socket"`
+	SOCKS                string `json:"socks"`
+	Readonly             bool   `json:"readonly"`
+	AutoShare            bool   `json:"auto_share"`
 }
 
 func (a *App) load() (Config, error) {

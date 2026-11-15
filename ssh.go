@@ -44,8 +44,40 @@ func (a *App) sshArgs(c Config, tty bool) []string {
 	return append(x, "rdev-"+c.Name)
 }
 func (a *App) remote(c Config, args []string, input []byte) ([]byte, error) {
-	return capture("ssh", append(a.sshArgs(c, false), shellJoin(append([]string{c.RemoteBinary, "remote"}, args...))), input)
+	b, e := a.remoteOnce(c, args, input)
+	safe := len(args) > 0 && (args[0] == "probe" || args[0] == "mount-health")
+	if e != nil && safe && transientPrivateFailure(e.Error()) {
+		// Warm the same tailnet path once. Never change destination or replay writes.
+		_, _ = a.ts(c, "ping", "--c=1", "--timeout=2s", c.RemoteIP)
+		return a.remoteOnce(c, args, input)
+	}
+	return b, e
 }
+func transientPrivateFailure(message string) bool {
+	if !strings.Contains(message, "exit status 255") {
+		return false
+	}
+	for _, text := range []string{"private-network destination is unavailable", "Connection closed", "Connection timed out", "Connection refused", "No route to host"} {
+		if strings.Contains(message, text) {
+			return true
+		}
+	}
+	return false
+}
+func (a *App) remoteOnce(c Config, args []string, input []byte) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "ssh", append(a.sshArgs(c, false), shellJoin(append([]string{c.RemoteBinary, "remote"}, args...)))...)
+	cmd.Stdin = bytes.NewReader(input)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	b, e := cmd.Output()
+	if e != nil {
+		return b, fmt.Errorf("远端操作失败（超时或连接/助手异常）：%w: %s", e, strings.TrimSpace(stderr.String()))
+	}
+	return b, nil
+}
+
 func admin(c Config, command []string, input []byte) ([]byte, error) {
 	if !validDestination(c.AdminSSH) {
 		return nil, errors.New("无效 SSH 地址")
@@ -74,6 +106,9 @@ func adminSFTP(c Config, input []byte) ([]byte, error) {
 	return capture("sftp", append(args, c.AdminSSH), input)
 }
 func (a *App) writeSSH(c Config, publicKey string) error {
+	if e := verifyPinnedKey(filepath.Join(a.State, "known_hosts"), publicKey); e != nil {
+		return e
+	}
 	args := append([]string{"-G"}, adminPort(c)...)
 	b, e := capture("ssh", append(args, c.AdminSSH), nil)
 	if e != nil {
@@ -117,6 +152,25 @@ func (a *App) writeSSH(c Config, publicKey string) error {
 		lines = append(lines, "  IdentityAgent "+sshQuote(agent[0]))
 	}
 	return atomicWrite(filepath.Join(a.State, "ssh_config"), []byte(strings.Join(lines, "\n")+"\n"), 0600)
+}
+
+func verifyPinnedKey(file, publicKey string) error {
+	parts := strings.Fields(publicKey)
+	if len(parts) < 2 || !strings.HasPrefix(parts[0], "ssh-") && !strings.HasPrefix(parts[0], "ecdsa-") {
+		return errors.New("远端主机公钥无效，未修改信任记录")
+	}
+	b, e := os.ReadFile(file)
+	if os.IsNotExist(e) {
+		return nil
+	}
+	if e != nil {
+		return e
+	}
+	old := strings.Fields(string(b))
+	if len(old) < 3 || old[1] != parts[0] || old[2] != parts[1] {
+		return errors.New("远端主机密钥发生变化，未自动接受；请先通过可信渠道核对主机身份")
+	}
+	return nil
 }
 func (a *App) upload(c Config, local, remote string) error {
 	if strings.ContainsAny(local+remote, "\r\n\x00") {

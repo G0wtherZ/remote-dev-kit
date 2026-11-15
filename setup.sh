@@ -12,8 +12,12 @@ if [ ! -f "$here/SHA256SUMS" ] || [ ! -d "$here/assets" ] || [ ! -f "$here/rdev"
 fi
 (cd "$here" && shasum -a 256 -c SHA256SUMS >/dev/null)
 if [ -e "$target/rdev" ]; then
-  echo "已安装。运行 $target/rdev setup --resume 或 doctor；未覆盖正在运行的版本。"
-  exit 0
+  if cmp -s "$here/rdev" "$target/rdev"; then
+    exec "$target/rdev" setup "$@"
+  fi
+  echo "已有不同版本，未覆盖。可在新包目录运行 ./rdev setup 继续使用现有配置。" >&2
+  echo "安装目录：$target；先 rdev uninstall 停止服务并保留数据，再按 README 的升级说明处理。" >&2
+  exit 1
 fi
 mkdir -p "$target" "$HOME/.local/bin"
 chmod 700 "$HOME/.local/share/remote-dev-kit"
