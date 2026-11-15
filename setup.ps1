@@ -11,9 +11,11 @@ Get-Content (Join-Path $PSScriptRoot "SHA256SUMS") | ForEach-Object {
     if ($Hash -ne $Parts[0]) { throw "文件校验失败：$($Parts[1])" }
 }
 if (Test-Path $Exe) {
-    Write-Host "已安装，未覆盖现有版本：$Exe"
-    Write-Host "可运行 doctor 或 setup --resume。"
-    exit 0
+    if ((Get-FileHash $Exe -Algorithm SHA256).Hash -eq (Get-FileHash (Join-Path $PSScriptRoot "rdev.exe") -Algorithm SHA256).Hash) {
+        & $Exe setup @args
+        exit $LASTEXITCODE
+    }
+    throw "已有不同版本，未覆盖：$Exe。可在新包目录执行 .\rdev.exe setup；升级前先停止本工具服务并备份私有状态。"
 }
 New-Item -ItemType Directory -Force -Path $Target | Out-Null
 foreach ($Item in @("rdev.exe", "assets", "licenses", "docs", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md", "SHA256SUMS")) {

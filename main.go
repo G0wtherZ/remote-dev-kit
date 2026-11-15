@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-const version = "0.1.0-alpha.1"
+const version = "0.1.0-alpha.2"
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
@@ -62,6 +62,8 @@ func run(args []string) error {
 		return app.doctor(args[1:])
 	case "repair":
 		return app.repair()
+	case "reset":
+		return app.reset(args[1:])
 	case "shell", "claude":
 		return app.terminal(args[0], args[1:])
 	case "reconnect":
@@ -100,6 +102,7 @@ func usage() {
   rdev setup                 交互设置两端，路径可自定义
   rdev doctor                检查连接、挂载依赖和开发工具
   rdev repair                恢复本工具连接/挂载，不重置系统网络
+  rdev reset [--plan]        重建本工具助手与连接，保留 Claude 和全部用户数据
   rdev claude [原生参数...]   新开远端原生 Claude；--resume 等参数直接透传
   rdev shell                 打开远端工作目录
   rdev reconnect             找回仍在运行的远端终端

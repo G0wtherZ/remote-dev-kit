@@ -4,29 +4,29 @@
 私网引导、专用目录的真实 SFTP/SSHFS 挂载、原生 Claude 终端，以及独立远端浏览器。
 Claude Code 可预装、后装或不装；本工具不修改它的二进制、账号或对话管理界面。
 
-这是 **0.1.0-alpha.1**：适合试用，尚不是全平台稳定版。平台构建不代表实机验收，
+这是 **0.1.0-alpha.2**：适合试用，尚不是全平台稳定版。平台构建不代表实机验收，
 具体范围见 [验证记录](docs/VALIDATION.md)。首版未签名、未公证，不会自动关闭系统保护。
 
 ## 一键下载、安装并启动向导
 
 **在本机执行**，不需要先在 VPS 上安装本项目，也不需要 Go、Python 或 Docker。
 脚本自动识别 CPU 架构，下载固定版本安装包，检查 SHA-256，再启动 setup。
-以下命令固定到 `v0.1.0-alpha.1`，不会静默安装后续版本。
+以下命令固定到 `v0.1.0-alpha.2`，不会静默安装后续版本。
 
 macOS（iTerm2、Terminal 等均可）：
 
 ```sh
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/G0wtherZ/remote-dev-kit/v0.1.0-alpha.1/install.sh)"
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/G0wtherZ/remote-dev-kit/v0.1.0-alpha.2/install.sh)"
 ```
 
 Windows PowerShell（5.1 或 7）：
 
 ```powershell
-irm https://raw.githubusercontent.com/G0wtherZ/remote-dev-kit/v0.1.0-alpha.1/install.ps1 | iex
+irm https://raw.githubusercontent.com/G0wtherZ/remote-dev-kit/v0.1.0-alpha.2/install.ps1 | iex
 ```
 
 这会执行本项目公开的安装脚本，可先查看 [macOS 脚本](install.sh) 或
-[Windows 脚本](install.ps1)。也可从 [Release 页面](https://github.com/G0wtherZ/remote-dev-kit/releases/tag/v0.1.0-alpha.1)
+[Windows 脚本](install.ps1)。也可从 [Release 页面](https://github.com/G0wtherZ/remote-dev-kit/releases/tag/v0.1.0-alpha.2)
 手动下载、核对 `SHA256SUMS` 后解压。在解压目录执行 `./setup.sh`（Mac）或
 `.\setup.ps1`（Windows）。不需要以管理员身份运行本机安装器。
 
@@ -80,6 +80,15 @@ ssh dev@example.com
 远端 SSH 是 root 时，交互向导提供创建不带 sudo 的 Linux 开发用户。已有同名非本工具
 账户不会被覆盖。远端 macOS 请提供普通用户的 SSH 连接。
 
+已有配置时再次运行 `rdev setup`，可选择继续设置或调整目录与共享；也可以直接：
+
+```sh
+rdev setup --edit
+```
+
+改变共享目录前会显示旧、新路径和权限，并询问是否应用。只修改连接配置，不搬迁文件；
+更换远端主机或账户使用新的 `--state-dir`，不会把旧身份直接套用到另一台机器。
+
 设置中断后：
 
 ```sh
@@ -91,7 +100,8 @@ rdev doctor
 
 若本机窗口尚未识别 `rdev`，重新打开终端。Mac 也可用
 `~/.local/bin/rdev`，Windows 安装目录为 `%LOCALAPPDATA%\RemoteDevKit\app`。
-`--resume` 需远端 Tailscale 已登录；未登录时先通过原 SSH 连接运行 `sudo tailscale up`。
+`--resume` 会继续账户初始化、网络授权、基础依赖和挂载步骤，复用原设备身份。
+远端 Tailscale 授权仍需本人完成；`--yes` 不会跳过授权。
 
 需要手动指定配置时：
 
@@ -124,6 +134,8 @@ rdev claude --worktree feature-a    # 原生独立工作区
 rdev reconnect                     # 接回仍在运行的远端终端
 rdev shell                         # 不依赖 Claude 的远端 Shell
 rdev doctor
+rdev doctor --network               # 额外查看 Tailscale 路径
+rdev doctor --json                  # 给脚本使用的结构化结果
 ```
 
 每次启动新建远端持久终端；多任务、对话、权限交互交给 Claude 原生界面。
@@ -142,7 +154,11 @@ rdev share off
 **这是实时挂载，不是同步镜像。远端修改、删除会影响本机专用目录中的原文件。**
 只读方式可在 setup 使用 `--read-only`。本机只运行受限 SFTP 服务，不要求打开本机 SSH、
 公网文件端口或整个磁盘。SFTP 虚拟根与专用目录绑定，禁止越界链接和凭据目录访问。
-本机断线时共享不可用；不会把远端同名空目录误报为成功挂载。
+本机断线时共享不可用；重新连接会沿用原授权，关闭共享后不会自动重开。
+就绪检查会实际读取目录，避免把残留挂载误报为可用；退出时清理本工具的挂载。
+共享异常时，启动 Claude 会询问是否不等待共享恢复、继续远端工作，已有授权保持不变。
+macOS `/Volumes/` 下的外接盘还会绑定卷 UUID：拔盘或同名路径换盘时拒绝自动共享，
+不会在原挂载位置创建一个空目录冒充磁盘。重新格式化后需要通过 `setup --edit` 重新确认。
 
 文件路径用法普通，但性能、锁、元数据和断线语义不等同本地磁盘。代码依赖、
 数据库和频繁构建放在远端 `work`。共享目录中的 symlink 和 Unix 元数据操作有限制。
@@ -208,6 +224,24 @@ rdev agent login              # 打开原生 Claude，由用户本人完成 /log
 远端 macOS 的 FUSE/SSHFS 需要兼容 FSKit 的安装；不会为了挂载默认降低系统安全设置。
 远端 macOS 首次 Tailscale 安装需要按官方流程由设备所有者批准系统扩展。
 
+## 检查、修复与安全重置
+
+```sh
+rdev doctor                # 检查就绪项，给出下一步；不安装、登录或改变权限
+rdev repair                # 修复本工具连接，必要时安全卸载不可读的残留挂载
+rdev reset --plan          # 查看重置范围，不修改环境
+rdev reset                 # 确认后重新部署助手、连接及原先启用的共享
+```
+
+**reset 只重建 Remote Dev Kit 的组件，绝不格式化磁盘。** 不删除或重新安装 Claude，
+不更改其配置、登录、对话历史，不结束远端 tmux/Claude 会话；保留代码、依赖、共享文件、
+浏览器资料、账户与 SSH/Tailscale 身份。共享会短暂断开，正在使用共享的任务可能受影响。
+无法安全卸载时报告错误，不强制结束开发任务。
+
+助手缺失或损坏时，仅替换有匹配安装标记的 `rdev` 文件；对 alpha.1 的兼容只接受与已发布
+助手 SHA-256 完全一致的旧文件。归属不明的程序不覆盖。主机密钥变化不会被 repair/reset
+自动接受。设备和数据写入操作不自动重放；瞬时私网错误只对查询做一次有界重试，仍走原私网。
+
 ## 状态与卸载
 
 ```sh
@@ -223,7 +257,10 @@ rdev uninstall
 
 卸载停止本工具的服务和挂载，保留共享数据、远端账号及私有身份状态。
 设备注销由用户在自己的 Tailscale 管理页操作；不自动删除账号或网站服务。
-初版不提供覆盖式升级；安装脚本遇到已有版本会停止并提示。
+同一安装包再次运行会进入已有配置向导。不同版本不会覆盖运行中的程序：升级时先
+`rdev uninstall` 停止旧版服务，保留旧目录和 `~/.rdev` 作为备份，将完整新包放在长期路径，
+用新包的 `rdev setup --resume` 继续，再把命令入口指向新包。运行服务期间不要移动或删除程序目录。
+本版尚未提供自动升级和回退。
 
 ## 常见问题
 

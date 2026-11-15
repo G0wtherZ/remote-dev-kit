@@ -2,8 +2,6 @@ package main
 
 import (
 	"bufio"
-	"bytes"
-	"compress/gzip"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -47,12 +45,16 @@ func (a *App) setup(args []string) error {
 	allowAdmin := f.Bool("allow-admin", false, "保留管理账号，仅用于测试；Claude 拒绝 root 运行")
 	bootstrap := f.String("remote-bootstrap-dir", "", "可选远端程序目录，默认放在用户目录")
 	resume := f.Bool("resume", false, "继续已经保存但尚未完成的设置")
+	edit := f.Bool("edit", false, "调整现有目录和共享配置，不迁移或删除文件")
 	if e := f.Parse(args); e != nil {
 		return e
 	}
 	prompt := &Prompter{bufio.NewReader(os.Stdin)}
-	if *resume {
-		return a.resumeSetup(prompt, *yes)
+	if _, err := os.Stat(filepath.Join(a.State, "config.json")); err == nil {
+		return a.existingSetup(f, prompt, *yes, *plan, *edit, *resume, *local, *remoteDir, *ro, *noShare)
+	}
+	if *resume || *edit {
+		return errors.New("没有可继续或调整的配置，请先运行 setup")
 	}
 	if !*yes {
 		var e error
@@ -123,6 +125,10 @@ func (a *App) setup(args []string) error {
 		return e
 	}
 	c := Config{Version: 1, Name: *name, AdminSSH: *dest, AdminPort: *port, LocalRoot: root, RemoteRoot: *remoteDir, NetworkMode: *mode, Tailscale: *cli, Socket: *socket, SOCKS: *socks, Readonly: *ro, AutoShare: !*noShare}
+	c.LocalVolume, e = localVolumeIdentity(root)
+	if e != nil {
+		return e
+	}
 	if *socks != "" {
 		h, _, err := net.SplitHostPort(*socks)
 		if err != nil || h != "localhost" && !net.ParseIP(h).IsLoopback() {
@@ -178,10 +184,6 @@ func (a *App) setup(args []string) error {
 	}
 	c.RemoteOS = platform
 	c.RemoteArch = arch
-	bin, e := asset("rdev", platform+"-"+arch, "rdev")
-	if e != nil {
-		return e
-	}
 	dir := *bootstrap
 	if dir == "" {
 		dir = filepath.ToSlash(lines[2]) + "/.local/share/rdev/" + c.Name
@@ -191,24 +193,7 @@ func (a *App) setup(args []string) error {
 	}
 	c.RemoteBinary = strings.TrimRight(dir, "/") + "/rdev"
 	c.BootstrapBinary = c.RemoteBinary
-	if _, e = admin(c, []string{"mkdir", "-p", dir}, nil); e != nil {
-		return e
-	}
-	fmt.Println("上传远端助手（压缩传输，完成前不替换现有文件）…")
-	payload, e := os.ReadFile(bin)
-	if e != nil {
-		return e
-	}
-	var compressed bytes.Buffer
-	zipper := gzip.NewWriter(&compressed)
-	if _, e = zipper.Write(payload); e != nil {
-		return e
-	}
-	if e = zipper.Close(); e != nil {
-		return e
-	}
-	installScript := "set -eu\numask 077\ntmp=$(mktemp " + shellQuote(dir+"/.rdev-upload.XXXXXXXX") + ")\ntrap 'rm -f \"$tmp\"' 0 1 2 15\ngzip -dc > \"$tmp\"\nchmod 700 \"$tmp\"\nmv -f \"$tmp\" " + shellQuote(c.RemoteBinary) + "\n"
-	if _, e = admin(c, []string{"sh", "-c", installScript}, compressed.Bytes()); e != nil {
+	if e = uploadRemoteHelper(c); e != nil {
 		return e
 	}
 	b, e = admin(c, []string{c.RemoteBinary, "remote", "probe", *remoteDir}, nil)
@@ -237,172 +222,23 @@ func (a *App) setup(args []string) error {
 			return errors.New("远端 macOS 请先提供普通用户的 SSH 连接；不会自动创建 macOS 管理账户")
 		}
 		c.Identity = filepath.Join(a.State, "identity_ed25519")
-		if e = interactive("ssh-keygen", []string{"-q", "-t", "ed25519", "-N", "", "-f", c.Identity, "-C", "remote-dev-kit-" + c.Name}); e != nil {
+		c.UserProvisionPending = true
+		c.SetupStage = "account"
+		if e = a.save(c); e != nil {
 			return e
 		}
-		pub, e := os.ReadFile(c.Identity + ".pub")
-		if e != nil {
+		if e = a.provisionUser(&c); e != nil {
 			return e
 		}
-		request := map[string]string{"user": "rdev", "public_key": strings.TrimSpace(string(pub)), "source_binary": c.RemoteBinary}
-		data, _ := jsonMarshal(request)
-		b, e = admin(c, []string{c.RemoteBinary, "remote", "create-user"}, data)
-		if e != nil {
-			return e
-		}
-		created, e := decode[map[string]string](b)
-		if e != nil {
-			return e
-		}
-		c.RemoteUser = "rdev"
-		c.RemoteBinary = created["binary"]
-	}
-	if e = a.save(c); e != nil {
-		return e
-	}
-	if e = a.configureNetwork(&c, prompt, *yes); e != nil {
-		return e
-	}
-	if info.NetworkState != "Running" {
-		fresh := info.Tools["tailscale"] == ""
-		if info.Tools["tailscale"] == "" {
-			if *yes {
-				return errors.New("远端未安装 Tailscale；运行 rdev tools install tailscale 后继续 setup，或交互确认安装")
-			}
-			ok, e := prompt.yes("远端缺少 Tailscale，安装官方客户端（需管理员权限）", true)
-			if e != nil {
-				return e
-			}
-			if !ok {
-				return errors.New("需要可用的远端私网连接")
-			}
-			if e = adminInteractive(c, shellJoin([]string{c.BootstrapBinary, "remote", "dependencies", "tailscale"})); e != nil {
-				return e
-			}
-		}
-		fmt.Println("授权远端设备：请用与本机相同的 Tailscale 账户。")
-		command := `tailscale up`
-		if fresh {
-			command += ` --accept-dns=false --accept-routes=false --ssh=false`
-		}
-		if info.UID != 0 {
-			command = "sudo " + command
-		}
-		if e = adminInteractive(c, command); e != nil {
-			return e
-		}
-		b, e = admin(c, []string{c.BootstrapBinary, "remote", "probe", c.RemoteRoot}, nil)
-		if e != nil {
-			return e
-		}
-		info, e = decode[RemoteInfo](b)
-		if e != nil {
-			return e
-		}
-	}
-	if info.TailscaleSSH {
-		fmt.Println("注意：远端已有 Tailscale SSH 设置；本工具未关闭它。若它接管 22 端口，请使用普通 OpenSSH 的独立端口后继续。")
-	}
-	for _, ip := range info.IPs {
-		if v := net.ParseIP(ip); v != nil && v.To4() != nil {
-			c.RemoteIP = ip
-			break
-		}
-	}
-	if c.RemoteIP == "" {
-		return errors.New("远端还没有 Tailscale IPv4 地址；配置已保存，可重新登录后运行 setup --resume")
-	}
-	if e = a.writeSSH(c, info.HostKey); e != nil {
-		return e
-	}
-	if e = a.save(c); e != nil {
-		return e
-	}
-	b, e = a.remote(c, []string{"init", c.RemoteRoot}, nil)
-	if e != nil {
-		return e
-	}
-	ready, e := decode[RemoteInfo](b)
-	if e != nil {
-		return e
-	}
-	c.RemoteRoot = ready.Root
-	if e = a.save(c); e != nil {
-		return e
-	}
-	fmt.Printf("设置完成。共享目录：%s\n远端工作目录：%s/work\n远端挂载位置：%s/local\n", c.LocalRoot, c.RemoteRoot, c.RemoteRoot)
-	if ready.Tools["sshfs"] == "" {
-		fmt.Println("挂载依赖尚未安装：运行 rdev tools install base；远端 macOS 按 doctor 的 FSKit 指引操作。")
-		if !*yes && c.AutoShare {
-			ok, err := prompt.yes("现在安装远端基础工具", true)
-			if err != nil {
-				return err
-			}
-			if ok {
-				if err = a.tools([]string{"install", "base"}); err != nil {
-					return err
-				}
-			}
-		}
-	}
-	if c.AutoShare {
-		if e = a.share([]string{"on"}); e != nil {
-			return e
-		}
-	}
-	if ready.Tools["claude"] == "" {
-		fmt.Println("Claude 未安装也不影响连接；需要时运行 rdev agent install。")
-	}
-	return nil
-}
-func jsonMarshal(v any) ([]byte, error) { return json.Marshal(v) }
 
-func (a *App) resumeSetup(p *Prompter, yes bool) error {
-	c, e := a.load()
-	if e != nil {
-		return e
 	}
-	if e = a.configureNetwork(&c, p, yes); e != nil {
-		return e
-	}
-	b, e := admin(c, []string{c.RemoteBinary, "remote", "probe", c.RemoteRoot}, nil)
-	if e != nil {
-		return e
-	}
-	info, e := decode[RemoteInfo](b)
-	if e != nil {
-		return e
-	}
-	if info.NetworkState != "Running" {
-		return errors.New("远端 Tailscale 尚未登录；通过原 SSH 登录执行 tailscale up，完成后再 setup --resume")
-	}
-	for _, ip := range info.IPs {
-		if v := net.ParseIP(ip); v != nil && v.To4() != nil {
-			c.RemoteIP = ip
-			break
-		}
-	}
-	if c.RemoteIP == "" {
-		return errors.New("远端尚无私网地址")
-	}
-	if e = a.writeSSH(c, info.HostKey); e != nil {
-		return e
-	}
-	b, e = a.remote(c, []string{"init", c.RemoteRoot}, nil)
-	if e != nil {
-		return e
-	}
-	ready, e := decode[RemoteInfo](b)
-	if e != nil {
-		return e
-	}
-	c.RemoteRoot = ready.Root
 	if e = a.save(c); e != nil {
 		return e
 	}
-	fmt.Println("设置已完成，可运行 rdev doctor。 ")
-	return nil
+	return a.completeSetup(c, prompt, *yes)
 }
+
+func jsonMarshal(v any) ([]byte, error) { return json.Marshal(v) }
 
 // platformDefaultCLI never imports login state or private keys from another app.
 func platformDefaultCLI() string {

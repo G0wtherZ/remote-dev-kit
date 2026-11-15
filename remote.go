@@ -21,18 +21,19 @@ import (
 )
 
 type RemoteInfo struct {
-	OS           string            `json:"os"`
-	Arch         string            `json:"arch"`
-	Home         string            `json:"home"`
-	UID          int               `json:"uid"`
-	Root         string            `json:"root"`
-	Mount        string            `json:"mount"`
-	Mounted      bool              `json:"mounted"`
-	Tools        map[string]string `json:"tools"`
-	IPs          []string          `json:"ips"`
-	NetworkState string            `json:"network_state"`
-	HostKey      string            `json:"host_key"`
-	TailscaleSSH bool              `json:"tailscale_ssh"`
+	OS            string            `json:"os"`
+	Arch          string            `json:"arch"`
+	Home          string            `json:"home"`
+	UID           int               `json:"uid"`
+	Root          string            `json:"root"`
+	Mount         string            `json:"mount"`
+	Mounted       bool              `json:"mounted"`
+	MountReadable bool              `json:"mount_readable"`
+	Tools         map[string]string `json:"tools"`
+	IPs           []string          `json:"ips"`
+	NetworkState  string            `json:"network_state"`
+	HostKey       string            `json:"host_key"`
+	TailscaleSSH  bool              `json:"tailscale_ssh"`
 }
 
 func remoteRoot(value string) (string, error) {
@@ -95,6 +96,23 @@ func probe(root string) RemoteInfo {
 		}
 	}
 	info.Mounted = isMounted(info.Mount)
+	if info.Mounted {
+		ready := make(chan bool, 1)
+		go func() {
+			f, e := os.Open(info.Mount)
+			if e != nil {
+				ready <- false
+				return
+			}
+			defer f.Close()
+			_, e = f.ReadDir(1)
+			ready <- e == nil || errors.Is(e, io.EOF)
+		}()
+		select {
+		case info.MountReadable = <-ready:
+		case <-time.After(2 * time.Second):
+		}
+	}
 	return info
 }
 func isMounted(target string) bool {
@@ -173,6 +191,12 @@ func remoteCommand(args []string) error {
 		return initRemote(root)
 	case "probe":
 		return output(probe(root))
+	case "mount-health":
+		if !isMounted(filepath.Join(root, "local")) {
+			return errors.New("共享未挂载")
+		}
+		_, e := os.ReadDir(filepath.Join(root, "local"))
+		return e
 	case "mount":
 		return remoteMount(root)
 	case "unmount":
@@ -318,6 +342,13 @@ func remoteMount(root string) error {
 	if e = cmd.Start(); e != nil {
 		return e
 	}
+	// FUSE may leave a stale mount behind after its SSH stream dies. Tear down
+	// this mount when its owning helper exits, without killing development tasks.
+	defer func() {
+		if e := remoteUnmount(root); e != nil {
+			fmt.Fprintln(os.Stderr, "共享退出后未能安全卸载：", e)
+		}
+	}()
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
 	ticker := time.NewTicker(150 * time.Millisecond)
