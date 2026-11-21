@@ -20,6 +20,9 @@ func (a *App) terminal(kind string, args []string) error {
 	if e != nil {
 		return e
 	}
+	if _, e = a.preflight(c, capTerminal); e != nil {
+		return e
+	}
 	if kind == "claude" && c.AutoShare {
 		if e = a.share([]string{"on"}); e != nil {
 			fmt.Fprintf(os.Stderr, "本机共享未就绪：%v\n", e)
@@ -38,6 +41,9 @@ func (a *App) terminal(kind string, args []string) error {
 func (a *App) reconnect(args []string) error {
 	c, e := a.load()
 	if e != nil {
+		return e
+	}
+	if _, e = a.preflight(c, capTerminal); e != nil {
 		return e
 	}
 	return interactive("ssh", append(a.sshArgs(c, true), shellJoin([]string{c.RemoteBinary, "remote", "reconnect", c.RemoteRoot})))
@@ -117,6 +123,9 @@ func (a *App) share(args []string) error {
 	}
 	switch args[0] {
 	case "on":
+		if _, e = a.preflight(c, capShare, capMountHealth); e != nil {
+			return e
+		}
 		b, e := a.remote(c, []string{"probe", c.RemoteRoot}, nil)
 		if e != nil {
 			return e
@@ -201,6 +210,10 @@ func (a *App) share(args []string) error {
 					continue
 				}
 			}
+			a.helperCache = nil
+			if _, e = a.preflight(c, capShare, capMountHealth); e != nil {
+				return e
+			}
 			cmd := exec.CommandContext(ctx, "ssh", append(a.sshArgs(c, false), shellJoin([]string{c.RemoteBinary, "remote", "mount", c.RemoteRoot}))...)
 			in, e := cmd.StdinPipe()
 			if e != nil {
@@ -252,6 +265,9 @@ func (a *App) agent(args []string) error {
 	}
 	switch args[0] {
 	case "install":
+		if _, e = a.preflight(c, capAgentInstall); e != nil {
+			return e
+		}
 		return interactive("ssh", append(a.sshArgs(c, true), shellJoin([]string{c.RemoteBinary, "remote", "install-agent"})))
 	case "login":
 		return a.terminal("claude", nil)
@@ -268,10 +284,19 @@ func (a *App) tools(args []string) error {
 		return e
 	}
 	if args[1] == "browser" {
+		if _, e = a.preflight(c, capDependencies); e != nil {
+			return e
+		}
 		return interactive("ssh", append(a.sshArgs(c, true), shellJoin([]string{c.RemoteBinary, "remote", "install-browser"})))
 	}
 	if args[1] == "node" {
+		if _, e = a.preflight(c, capDependencies); e != nil {
+			return e
+		}
 		return interactive("ssh", append(a.sshArgs(c, true), shellJoin([]string{c.RemoteBinary, "remote", "install-node"})))
+	}
+	if e = a.adminPreflight(c, capDependencies); e != nil {
+		return e
 	}
 	return adminInteractive(c, shellJoin([]string{c.BootstrapBinary, "remote", "dependencies", args[1]}))
 }

@@ -340,6 +340,13 @@ func (a *App) browser(args []string) error {
 	if e != nil {
 		return e
 	}
+	required := capBrowser
+	if len(args) > 0 && args[0] == "mcp" {
+		required = capBrowserMCP
+	}
+	if _, e = a.preflight(c, required); e != nil {
+		return e
+	}
 	if len(args) > 0 && args[0] == "mcp" {
 		return interactive("ssh", append(a.sshArgs(c, false), shellJoin([]string{c.RemoteBinary, "remote", "browser-mcp", c.RemoteRoot})))
 	}

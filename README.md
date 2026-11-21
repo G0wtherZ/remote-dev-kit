@@ -4,29 +4,29 @@
 私网引导、专用目录的真实 SFTP/SSHFS 挂载、原生 Claude 终端，以及独立远端浏览器。
 Claude Code 可预装、后装或不装；本工具不修改它的二进制、账号或对话管理界面。
 
-这是 **0.1.0-alpha.3**：适合试用，尚不是全平台稳定版。平台构建不代表实机验收，
+这是 **0.1.0-alpha.4**：适合试用，尚不是全平台稳定版。平台构建不代表实机验收，
 具体范围见 [验证记录](docs/VALIDATION.md)。首版未签名、未公证，不会自动关闭系统保护。
 
 ## 一键下载、安装并启动向导
 
 **在本机执行**，不需要先在 VPS 上安装本项目，也不需要 Go、Python 或 Docker。
 脚本自动识别 CPU 架构，下载固定版本安装包，检查 SHA-256，再启动 setup。
-以下命令固定到 `v0.1.0-alpha.3`，不会静默安装后续版本。
+以下命令固定到 `v0.1.0-alpha.4`，不会静默安装后续版本。
 
 macOS（iTerm2、Terminal 等均可）：
 
 ```sh
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/G0wtherZ/remote-dev-kit/v0.1.0-alpha.3/install.sh)"
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/G0wtherZ/remote-dev-kit/v0.1.0-alpha.4/install.sh)"
 ```
 
 Windows PowerShell（5.1 或 7）：
 
 ```powershell
-irm https://raw.githubusercontent.com/G0wtherZ/remote-dev-kit/v0.1.0-alpha.3/install.ps1 | iex
+irm https://raw.githubusercontent.com/G0wtherZ/remote-dev-kit/v0.1.0-alpha.4/install.ps1 | iex
 ```
 
 这会执行本项目公开的安装脚本，可先查看 [macOS 脚本](install.sh) 或
-[Windows 脚本](install.ps1)。也可从 [Release 页面](https://github.com/G0wtherZ/remote-dev-kit/releases/tag/v0.1.0-alpha.3)
+[Windows 脚本](install.ps1)。也可从 [Release 页面](https://github.com/G0wtherZ/remote-dev-kit/releases/tag/v0.1.0-alpha.4)
 手动下载、核对 `SHA256SUMS` 后解压。在解压目录执行 `./setup.sh`（Mac）或
 `.\setup.ps1`（Windows）。不需要以管理员身份运行本机安装器。
 
@@ -163,6 +163,35 @@ macOS `/Volumes/` 下的外接盘还会绑定卷 UUID：拔盘或同名路径换
 文件路径用法普通，但性能、锁、元数据和断线语义不等同本地磁盘。代码依赖、
 数据库和频繁构建放在远端 `work`。共享目录中的 symlink 和 Unix 元数据操作有限制。
 
+## 版本与能力预检
+
+新版 `doctor` 显示本机 rdev 与远端助手的版本、协议及兼容性；`--json` 包含两端完整能力列表。
+这里检查的是 **rdev 助手**，不执行 `claude --version`，不查询 Claude 账号或改动 Claude 数据。
+
+```sh
+rdev doctor
+rdev doctor --json
+```
+
+当前助手协议为 `1`。两端发布版本可以不同，只要协议兼容且具备当前操作所需能力即可。
+能力表示助手实现了该功能；tmux、SSHFS、Node/浏览器等运行依赖另行检查，不能混为一谈。
+未开启共享时，不会因缺少共享能力阻止纯远端终端的诊断。
+
+| 提示码 | 含义与处理 |
+| --- | --- |
+| `helper_protocol_missing` | 旧助手没有预检信息；只读查询其 rdev 版本后停止依赖助手的新操作。用当前完整安装包执行 `rdev reset --plan` 核对范围，再 `rdev reset` 更新本工具助手 |
+| `helper_protocol_mismatch` | 协议不兼容；若远端协议更高，先升级本机 rdev，不自动降级远端 |
+| `helper_capability_missing` | 协议可用，但不支持当前操作；更新支持该能力的 rdev 助手，或继续用已有能力 |
+| `helper_missing` / `helper_not_executable` | SSH 已响应，助手文件缺失或不能执行；核对平台与本工具助手路径 |
+| `helper_metadata_invalid` / `helper_path_invalid` | 返回内容或助手路径不正确；不会把其它程序、Claude 或通用 shell 当助手执行 |
+| `ssh_authentication_failed` / `host_key_mismatch` | 分别检查 SSH 身份或主机密钥；不会放宽验证或替换身份 |
+| `dependency_missing` / `share_unreadable` | 分别是缺少运行依赖或真实挂载不可读，按 doctor 的具体建议处理 |
+
+预检失败不会自动安装、更新或 reset。`reset` 只在用户明确执行后更新有归属标记的 rdev 文件，
+保留 Claude、项目和身份。关闭共享及撤销已有端口的清理路径不会被协议检查阻止；纯 SSH 端口预览不依赖助手协议。
+短时预检结果只在当前命令内缓存，不保存授权；文件共享每次重连都会重新检查助手。
+使用自定义 `--state-dir` 时，诊断建议也会指向同一份配置。
+
 ## 浏览器和端口
 
 ```sh
@@ -288,6 +317,18 @@ rdev uninstall
 安装后，连接地址、目录、主机公钥及可能生成的设备私钥存于**使用者本机** `~/.rdev`；
 不要上传该目录。共享内容会进入自己的远端机器，若在对话中引用，还会按客户端行为发送给模型服务。
 远端账户仍能操作其可访问的系统资源，本工具不是容器或完整安全沙箱。
+
+## 执行位置与 Plan B
+
+默认模式保持：**Harness 和主要开发执行都在远端，本机只开放明确授权的文件、端口与设备能力**。
+
+可以保留“远端 Harness + 本机执行”作为未来的 Plan B，适用于依赖本机工具链的场景。
+这是执行位置的选择，不能作为网络故障时自动切换的兜底；它同样需要可用的远程通道，
+也不要求更换 Tailscale。**当前版本尚未实现或开启 Plan B。**
+
+若后续实现，应使用独立配置并由用户显式选择执行位置；优先评估本机独立执行环境，
+按需映射项目目录与设备。直接以日常 Mac/Windows 用户身份开放通用 shell 会扩大暴露范围，
+其隔离强度与默认模式不同，必须单独授权，不能由远端助手、提示词或故障恢复过程自行启用。
 
 ## 从源码构建
 

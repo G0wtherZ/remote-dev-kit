@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-const version = "0.1.0-alpha.3"
+const version = "0.1.0-alpha.4"
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {

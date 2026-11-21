@@ -65,6 +65,9 @@ func (a *App) bootstrapProbe(c Config) (RemoteInfo, error) {
 	if helper == "" {
 		helper = c.RemoteBinary
 	}
+	if e := helperPathError(helper); e != nil {
+		return RemoteInfo{}, e
+	}
 	b, e := admin(c, []string{helper, "remote", "probe", c.RemoteRoot}, nil)
 	if e != nil {
 		return RemoteInfo{}, e
@@ -73,6 +76,9 @@ func (a *App) bootstrapProbe(c Config) (RemoteInfo, error) {
 }
 
 func (a *App) provisionUser(c *Config) error {
+	if e := helperPathError(c.BootstrapBinary); e != nil {
+		return e
+	}
 	if c.Identity == "" || c.BootstrapBinary == "" {
 		return errors.New("开发账户恢复信息不完整，未创建替换身份")
 	}
@@ -400,6 +406,7 @@ func (a *App) reset(args []string) error {
 			return e
 		}
 	}
+	a.helperCache = nil
 	if e = uploadRemoteHelper(c); e != nil {
 		return e
 	}

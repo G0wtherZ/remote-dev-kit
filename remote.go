@@ -21,6 +21,7 @@ import (
 )
 
 type RemoteInfo struct {
+	HelperInfo
 	OS            string            `json:"os"`
 	Arch          string            `json:"arch"`
 	Home          string            `json:"home"`
@@ -55,7 +56,7 @@ func remoteRoot(value string) (string, error) {
 }
 func probe(root string) RemoteInfo {
 	h, _ := os.UserHomeDir()
-	info := RemoteInfo{OS: runtime.GOOS, Arch: runtime.GOARCH, Home: h, UID: os.Getuid(), Root: root, Mount: filepath.Join(root, "local"), Tools: map[string]string{}}
+	info := RemoteInfo{HelperInfo: localHelperInfo(), OS: runtime.GOOS, Arch: runtime.GOARCH, Home: h, UID: os.Getuid(), Root: root, Mount: filepath.Join(root, "local"), Tools: map[string]string{}}
 	for _, name := range []string{"git", "tmux", "sshfs", "tailscale", "claude", "node", "npm", "npx", "chromium", "google-chrome", "brew"} {
 		if p, e := exec.LookPath(name); e == nil {
 			info.Tools[name] = p
@@ -174,7 +175,7 @@ func remoteCommand(args []string) error {
 	if len(args) > 1 {
 		root = args[1]
 	}
-	if op != "platform" && op != "create-user" && op != "dependencies" && op != "install-node" && op != "install-browser" && op != "install-agent" {
+	if op != "handshake" && op != "platform" && op != "create-user" && op != "dependencies" && op != "install-node" && op != "install-browser" && op != "install-agent" {
 		var e error
 		root, e = remoteRoot(root)
 		if e != nil {
@@ -182,6 +183,8 @@ func remoteCommand(args []string) error {
 		}
 	}
 	switch op {
+	case "handshake":
+		return output(localHelperInfo())
 	case "platform":
 		h, _ := os.UserHomeDir()
 		return output(map[string]string{"os": runtime.GOOS, "arch": runtime.GOARCH, "home": h})

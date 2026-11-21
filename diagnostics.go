@@ -12,18 +12,23 @@ import (
 )
 
 type healthCheck struct {
+	Code   string `json:"code,omitempty"`
 	Name   string `json:"name"`
 	State  string `json:"state"`
 	Detail string `json:"detail"`
 	Action string `json:"action,omitempty"`
 }
 type healthReport struct {
-	Stage           string        `json:"setup_stage,omitempty"`
-	LocalRoot       string        `json:"local_root"`
-	RemoteRoot      string        `json:"remote_root"`
-	ConnectionReady bool          `json:"connection_ready"`
-	MountReady      bool          `json:"mount_ready"`
-	Checks          []healthCheck `json:"checks"`
+	LocalHelper      HelperInfo    `json:"local_helper"`
+	RemoteHelper     *HelperInfo   `json:"remote_helper,omitempty"`
+	HelperCompatible bool          `json:"helper_compatible"`
+	Compatibility    string        `json:"compatibility"`
+	Stage            string        `json:"setup_stage,omitempty"`
+	LocalRoot        string        `json:"local_root"`
+	RemoteRoot       string        `json:"remote_root"`
+	ConnectionReady  bool          `json:"connection_ready"`
+	MountReady       bool          `json:"mount_ready"`
+	Checks           []healthCheck `json:"checks"`
 }
 
 func (a *App) doctor(args []string) error {
@@ -40,12 +45,22 @@ func (a *App) doctor(args []string) error {
 	if e != nil {
 		return e
 	}
-	r := healthReport{Stage: c.SetupStage, LocalRoot: c.LocalRoot, RemoteRoot: c.RemoteRoot}
+	r := healthReport{LocalHelper: localHelperInfo(), Compatibility: "unknown", Stage: c.SetupStage, LocalRoot: c.LocalRoot, RemoteRoot: c.RemoteRoot}
 	add := func(name, state, detail, action string) {
-		r.Checks = append(r.Checks, healthCheck{name, state, detail, action})
+		r.Checks = append(r.Checks, healthCheck{Name: name, State: state, Detail: detail, Action: action})
+	}
+	addIssue := func(name string, err error) {
+		code, action := errorDetails(err)
+		detail := err.Error()
+		var issue *operationError
+		if errors.As(err, &issue) {
+			detail = issue.Detail
+		}
+		add(name, "error", detail, action)
+		r.Checks[len(r.Checks)-1].Code = code
 	}
 	if e = checkLocalShare(c); e != nil {
-		add("本机共享目录", "warning", e.Error(), "连接原磁盘，或 rdev setup --edit 调整路径")
+		add("本机共享目录", "warning", e.Error(), "连接原磁盘，或 "+a.hint("setup", "--edit")+" 调整路径")
 	} else {
 		add("本机共享目录", "ok", c.LocalRoot, "")
 	}
@@ -54,49 +69,78 @@ func (a *App) doctor(args []string) error {
 		if err == nil && status.BackendState == "Running" {
 			add("本机私网", "ok", "已连接", "")
 		} else {
-			add("本机私网", "error", "尚未登录或未运行", "rdev network login")
+			add("本机私网", "error", "尚未登录或未运行", a.hint("network", "login"))
 		}
 	} else {
-		add("本机私网", "error", err.Error(), "rdev repair；尚未完成设置时用 setup --resume")
+		add("本机私网", "error", err.Error(), a.hint("repair")+"；尚未完成设置时用 "+a.hint("setup", "--resume"))
 	}
-	b, e := a.remote(c, []string{"probe", c.RemoteRoot}, nil)
-	if e != nil {
-		add("私网 SSH / 远端助手", "error", e.Error(), "先 rdev repair；助手损坏时 rdev reset")
+	helper, err := a.preflight(c)
+	if err != nil {
+		code, _ := errorDetails(err)
+		r.Compatibility = code
+		var issue *operationError
+		if errors.As(err, &issue) && (issue.Stage == "helper" || issue.Stage == "compatibility" || issue.Stage == "capability") {
+			r.ConnectionReady = true
+		}
+		if helper.HelperVersion != "" {
+			r.RemoteHelper = &helper
+		}
+		addIssue("远端助手预检", err)
 	} else {
-		info, err := decode[RemoteInfo](b)
-		if err != nil {
-			return err
-		}
+		r.RemoteHelper = &helper
 		r.ConnectionReady = true
-		add("私网 SSH / 远端助手", "ok", fmt.Sprintf("%s/%s", info.OS, info.Arch), "")
-		if info.UID == 0 {
-			add("研发账户", "warning", "当前是 root，Claude 启动会被拒绝", "使用普通开发用户的新连接配置")
+		r.HelperCompatible = true
+		r.Compatibility = "compatible"
+		add("助手兼容性", "ok", fmt.Sprintf("本机 %s / 远端 %s · 协议 %d 兼容", version, helper.HelperVersion, helper.ProtocolVersion), "")
+		b, probeErr := a.remote(c, []string{"probe", c.RemoteRoot}, nil)
+		if probeErr != nil {
+			addIssue("远端运行环境", probeErr)
 		} else {
-			add("研发账户", "ok", "普通用户", "")
-		}
-		if info.Tools["tmux"] == "" {
-			add("持久终端", "error", "缺少 tmux", "rdev tools install base")
-		} else {
-			add("持久终端", "ok", "可用", "")
-		}
-		if !c.AutoShare {
-			add("文件共享", "off", "用户已关闭，不会自动开启", "")
-		} else if !info.Mounted {
-			add("文件共享", "error", "未挂载", "rdev share on；缺少依赖时 tools install base")
-		} else if !info.MountReadable {
-			add("文件共享", "error", "挂载存在但实际读取失败或超时", "rdev repair；仍未恢复时关闭占用文件后 rdev reset")
-		} else {
-			r.MountReady = true
-			permission := "可读写"
-			if c.Readonly {
-				permission = "只读"
+			info, parseErr := decode[RemoteInfo](b)
+			if parseErr != nil {
+				addIssue("远端运行环境", &operationError{Code: "helper_metadata_invalid", Stage: "helper", Detail: "助手已通过握手，但运行环境响应不是有效 JSON。", Action: "核对助手路径与版本。"})
+			} else if compatibilityErr := validateHelper(info.HelperInfo); compatibilityErr != nil {
+				r.HelperCompatible = false
+				r.Compatibility = "helper_metadata_inconsistent"
+				addIssue("远端运行环境", compatibilityErr)
+			} else {
+				add("私网 SSH / 远端助手", "ok", fmt.Sprintf("%s/%s", info.OS, info.Arch), "")
+				if info.UID == 0 {
+					add("研发账户", "warning", "当前是 root，Claude 启动会被拒绝", "使用普通开发用户的新连接配置")
+				} else {
+					add("研发账户", "ok", "普通用户", "")
+				}
+				if capabilityErr := validateHelper(helper, capTerminal); capabilityErr != nil {
+					addIssue("持久终端", capabilityErr)
+				} else if info.Tools["tmux"] == "" {
+					addIssue("持久终端", &operationError{Code: "dependency_missing", Stage: "runtime", Detail: "助手支持终端，但远端缺少 tmux。", Action: a.hint("tools", "install", "base")})
+				} else {
+					add("持久终端", "ok", "可用", "")
+				}
+				if !c.AutoShare {
+					add("文件共享", "off", "用户已关闭，不会自动开启", "")
+				} else if capabilityErr := validateHelper(helper, capShare, capMountHealth); capabilityErr != nil {
+					addIssue("文件共享", capabilityErr)
+				} else if info.Tools["sshfs"] == "" {
+					addIssue("文件共享", &operationError{Code: "dependency_missing", Stage: "runtime", Detail: "助手支持共享，但远端缺少 SSHFS。", Action: a.hint("tools", "install", "base")})
+				} else if !info.Mounted {
+					addIssue("文件共享", &operationError{Code: "share_not_mounted", Stage: "runtime", Detail: "共享能力兼容，但当前没有挂载。", Action: a.hint("share", "on")})
+				} else if !info.MountReadable {
+					addIssue("文件共享", &operationError{Code: "share_unreadable", Stage: "runtime", Detail: "挂载存在但实际读取失败或超时。", Action: a.hint("repair")})
+				} else {
+					r.MountReady = true
+					permission := "可读写"
+					if c.Readonly {
+						permission = "只读"
+					}
+					add("文件共享", "ok", "真实目录读取通过 · "+permission, "")
+				}
+				if info.Tools["claude"] == "" {
+					add("Claude（可选）", "optional", "未安装，不影响 shell 和文件协作", "需要时 "+a.hint("agent", "install"))
+				} else {
+					add("Claude（可选）", "ok", "已发现程序路径；没有执行 Claude 或查询其账号", "")
+				}
 			}
-			add("文件共享", "ok", "真实目录读取通过 · "+permission, "")
-		}
-		if info.Tools["claude"] == "" {
-			add("Claude（可选）", "optional", "未安装，不影响 shell 和文件协作", "需要时 rdev agent install")
-		} else {
-			add("Claude（可选）", "ok", "已安装；未自动登录或调用模型", "")
 		}
 	}
 	if *network {
@@ -111,12 +155,24 @@ func (a *App) doctor(args []string) error {
 			return e
 		}
 	} else {
+		fmt.Printf("本机 rdev：%s · 协议 %d\n", r.LocalHelper.HelperVersion, r.LocalHelper.ProtocolVersion)
+		if r.RemoteHelper != nil {
+			protocol := fmt.Sprint(r.RemoteHelper.ProtocolVersion)
+			if r.RemoteHelper.ProtocolVersion == 0 {
+				protocol = "未提供"
+			}
+			fmt.Printf("远端助手：%s · 协议 %s\n", r.RemoteHelper.HelperVersion, protocol)
+		}
 		fmt.Printf("本机：%s\n远端：%s\n", r.LocalRoot, r.RemoteRoot)
 		if r.Stage != "" && r.Stage != "ready" {
 			fmt.Println("设置进度：", r.Stage, "（可执行 setup --resume）")
 		}
 		for _, check := range r.Checks {
-			fmt.Printf("[%s] %s：%s\n", check.State, check.Name, check.Detail)
+			label := check.State
+			if check.Code != "" {
+				label += "/" + check.Code
+			}
+			fmt.Printf("[%s] %s：%s\n", label, check.Name, check.Detail)
 			if check.Action != "" {
 				fmt.Println("  下一步：", check.Action)
 			}

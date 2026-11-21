@@ -1,6 +1,6 @@
 # Download a pinned Windows release, verify it, and start the interactive setup.
 $ErrorActionPreference = 'Stop'
-$Version = '0.1.0-alpha.3'
+$Version = '0.1.0-alpha.4'
 $Base = "https://github.com/G0wtherZ/remote-dev-kit/releases/download/v$Version"
 if ($env:OS -ne 'Windows_NT') { throw 'Run this installer on your local Windows PC. macOS: use install.sh.' }
 $NativeArch = $env:PROCESSOR_ARCHITECTURE
