@@ -12,7 +12,10 @@ import (
 	"strings"
 )
 
-type App struct{ State string }
+type App struct {
+	State       string
+	helperCache *helperSnapshot
+}
 type Config struct {
 	Version              int    `json:"version"`
 	SetupStage           string `json:"setup_stage,omitempty"`

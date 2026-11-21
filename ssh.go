@@ -44,10 +44,21 @@ func (a *App) sshArgs(c Config, tty bool) []string {
 	return append(x, "rdev-"+c.Name)
 }
 func (a *App) remote(c Config, args []string, input []byte) ([]byte, error) {
+	if len(args) > 0 {
+		if required := requiredCapabilities(args[0]); len(required) > 0 {
+			if _, e := a.preflight(c, required...); e != nil {
+				return nil, e
+			}
+		}
+	}
+	return a.remoteRead(c, args, input)
+}
+func (a *App) remoteRead(c Config, args []string, input []byte) ([]byte, error) {
 	b, e := a.remoteOnce(c, args, input)
-	safe := len(args) > 0 && (args[0] == "probe" || args[0] == "mount-health")
-	if e != nil && safe && transientPrivateFailure(e.Error()) {
-		// Warm the same tailnet path once. Never change destination or replay writes.
+	safe := len(args) > 0 && (args[0] == "probe" || args[0] == "handshake" || args[0] == "mount-health")
+	var issue *operationError
+	retryable := errors.As(e, &issue) && issue.Code == "connection_unavailable"
+	if e != nil && safe && retryable && transientPrivateFailure(e.Error()) {
 		_, _ = a.ts(c, "ping", "--c=1", "--timeout=2s", c.RemoteIP)
 		return a.remoteOnce(c, args, input)
 	}
@@ -65,15 +76,24 @@ func transientPrivateFailure(message string) bool {
 	return false
 }
 func (a *App) remoteOnce(c Config, args []string, input []byte) ([]byte, error) {
+	return a.runRemoteCommand(c, append([]string{c.RemoteBinary, "remote"}, args...), input)
+}
+func (a *App) runRemoteCommand(c Config, command []string, input []byte) ([]byte, error) {
+	if len(command) == 0 {
+		return nil, errors.New("缺少 rdev 助手操作")
+	}
+	if e := helperPathError(command[0]); e != nil {
+		return nil, e
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "ssh", append(a.sshArgs(c, false), shellJoin(append([]string{c.RemoteBinary, "remote"}, args...)))...)
+	cmd := exec.CommandContext(ctx, "ssh", append(a.sshArgs(c, false), shellJoin(command))...)
 	cmd.Stdin = bytes.NewReader(input)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	b, e := cmd.Output()
 	if e != nil {
-		return b, fmt.Errorf("远端操作失败（超时或连接/助手异常）：%w: %s", e, strings.TrimSpace(stderr.String()))
+		return b, a.classifyRemoteError(e, stderr.String(), ctx.Err() != nil)
 	}
 	return b, nil
 }

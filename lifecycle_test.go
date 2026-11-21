@@ -83,9 +83,10 @@ exec /bin/sh -c "$last"
 	a := &App{State: filepath.Join(h, "private")}
 	c := Config{Version: 1, Name: "test", AdminSSH: "fixture", LocalRoot: local, RemoteRoot: root, RemoteBinary: filepath.Join(h, "helpers", "rdev"), BootstrapBinary: filepath.Join(h, "helpers", "rdev"), RemoteOS: runtime.GOOS, RemoteArch: runtime.GOARCH, RemoteIP: "100.64.1.2", NetworkMode: "existing", Tailscale: filepath.Join(tools, "tailscale")}
 	os.WriteFile(c.Tailscale, []byte("#!/bin/sh\nprintf '%s' '{\"BackendState\":\"Running\"}'\n"), 0700)
-	info := RemoteInfo{OS: runtime.GOOS, Arch: runtime.GOARCH, UID: 501, Root: root, HostKey: "ssh-ed25519 SAME fixture", IPs: []string{c.RemoteIP}, NetworkState: "Running", Tools: map[string]string{"tmux": "/fixture/tmux"}}
+	info := RemoteInfo{HelperInfo: localHelperInfo(), OS: runtime.GOOS, Arch: runtime.GOARCH, UID: 501, Root: root, HostKey: "ssh-ed25519 SAME fixture", IPs: []string{c.RemoteIP}, NetworkState: "Running", Tools: map[string]string{"tmux": "/fixture/tmux"}}
 	b, _ := json.Marshal(info)
-	helper := "#!/bin/sh\ncase \"$2\" in probe|init) printf %s " + shellQuote(string(b)) + ";; unmount) exit 0;; *) exit 1;; esac\n"
+	handshake, _ := json.Marshal(localHelperInfo())
+	helper := "#!/bin/sh\ncase \"$2\" in handshake) printf %s " + shellQuote(string(handshake)) + ";; probe|init) printf %s " + shellQuote(string(b)) + ";; unmount) exit 0;; *) exit 1;; esac\n"
 	assets := filepath.Join(h, "assets")
 	target := filepath.Join(assets, "rdev", c.RemoteOS+"-"+c.RemoteArch)
 	os.MkdirAll(target, 0700)
@@ -193,6 +194,10 @@ func TestEditingPlanPreservesIdentityAndDoesNotMoveFiles(t *testing.T) {
 func TestColdPrivateProbeRetriesButMutationDoesNot(t *testing.T) {
 	a, c, h := lifecycleFixture(t)
 	if e := uploadRemoteHelper(c); e != nil {
+		t.Fatal(e)
+	}
+	// Complete the read-only preflight first; a later failed mutation must not replay.
+	if _, e := a.preflight(c, capPortRelay); e != nil {
 		t.Fatal(e)
 	}
 	gate := filepath.Join(h, "path-ready")
