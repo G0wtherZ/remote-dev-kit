@@ -13,7 +13,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "dist"
-VERSION = "0.1.0-alpha.4"
+VERSION = "0.1.0-alpha.5"
 TAILSCALE = "v1.104.7"
 TARGETS = ["darwin-arm64", "darwin-amd64", "windows-amd64", "windows-arm64", "linux-amd64", "linux-arm64"]
 
@@ -49,6 +49,9 @@ def collect_licenses(module_dir, target_dir):
     goroot = subprocess.run(["go", "env", "GOROOT"], cwd=module_dir, capture_output=True, text=True, check=True).stdout.strip()
     go_license = target_dir / "go" / "LICENSE"; go_license.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(Path(goroot) / "LICENSE", go_license)
+    for source in (ROOT / "web/plan-b/vendor").glob("LICENSE-*"):
+        dest = target_dir / "web-terminal" / source.name; dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, dest)
 
 
 def build_tailscale(target):

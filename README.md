@@ -2,31 +2,31 @@
 
 本机作为入口，远端运行研发环境。首版提供 macOS/Windows 命令行入口、Tailscale
 私网引导、专用目录的真实 SFTP/SSHFS 挂载、原生 Claude 终端，以及独立远端浏览器。
-Claude Code 可预装、后装或不装；本工具不修改它的二进制、账号或对话管理界面。
+Claude Code 可预装、后装或不装；默认 A 不修改既有 Claude；可选 B 在专用容器中另行安装/登录官方 Claude，使用独立数据。
 
-这是 **0.1.0-alpha.4**：适合试用，尚不是全平台稳定版。平台构建不代表实机验收，
+这是 **0.1.0-alpha.5**：适合试用，尚不是全平台稳定版。平台构建不代表实机验收，
 具体范围见 [验证记录](docs/VALIDATION.md)。首版未签名、未公证，不会自动关闭系统保护。
 
 ## 一键下载、安装并启动向导
 
-**在本机执行**，不需要先在 VPS 上安装本项目，也不需要 Go、Python 或 Docker。
+**在本机执行**，不需要先在 VPS 上安装本项目，也不需要 Go、Python 或本机 Docker。默认 A 不依赖 Docker；可选 B 需要远端 Docker。
 脚本自动识别 CPU 架构，下载固定版本安装包，检查 SHA-256，再启动 setup。
-以下命令固定到 `v0.1.0-alpha.4`，不会静默安装后续版本。
+以下命令固定到 `v0.1.0-alpha.5`，不会静默安装后续版本。
 
 macOS（iTerm2、Terminal 等均可）：
 
 ```sh
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/G0wtherZ/remote-dev-kit/v0.1.0-alpha.4/install.sh)"
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/G0wtherZ/remote-dev-kit/v0.1.0-alpha.5/install.sh)"
 ```
 
 Windows PowerShell（5.1 或 7）：
 
 ```powershell
-irm https://raw.githubusercontent.com/G0wtherZ/remote-dev-kit/v0.1.0-alpha.4/install.ps1 | iex
+irm https://raw.githubusercontent.com/G0wtherZ/remote-dev-kit/v0.1.0-alpha.5/install.ps1 | iex
 ```
 
 这会执行本项目公开的安装脚本，可先查看 [macOS 脚本](install.sh) 或
-[Windows 脚本](install.ps1)。也可从 [Release 页面](https://github.com/G0wtherZ/remote-dev-kit/releases/tag/v0.1.0-alpha.4)
+[Windows 脚本](install.ps1)。也可从 [Release 页面](https://github.com/G0wtherZ/remote-dev-kit/releases/tag/v0.1.0-alpha.5)
 手动下载、核对 `SHA256SUMS` 后解压。在解压目录执行 `./setup.sh`（Mac）或
 `.\setup.ps1`（Windows）。不需要以管理员身份运行本机安装器。
 
@@ -322,13 +322,31 @@ rdev uninstall
 
 默认模式保持：**Harness 和主要开发执行都在远端，本机只开放明确授权的文件、端口与设备能力**。
 
-可以保留“远端 Harness + 本机执行”作为未来的 Plan B，适用于依赖本机工具链的场景。
-这是执行位置的选择，不能作为网络故障时自动切换的兜底；它同样需要可用的远程通道，
-也不要求更换 Tailscale。**当前版本尚未实现或开启 Plan B。**
+**alpha.5 增加独立实现的 Plan B**：官方 Claude 在远端专用容器运行，通过 rdev 自己的
+SSH/SFTP 执行器操作本机。主入口仍是命令行，可选网页接回同一批原生终端。
+它没有集成 cc-desk-tunnel 的程序、协议或 Electron App。底层通用依赖和官方 Claude
+保留各自许可。
 
-若后续实现，应使用独立配置并由用户显式选择执行位置；优先评估本机独立执行环境，
-按需映射项目目录与设备。直接以日常 Mac/Windows 用户身份开放通用 shell 会扩大暴露范围，
-其隔离强度与默认模式不同，必须单独授权，不能由远端助手、提示词或故障恢复过程自行启用。
+```sh
+rdev plan-b setup --ssh my-private-vps
+rdev plan-b on --trust-local-user
+rdev plan-b claude
+# 另一个终端再次执行，即新开一个客户端/对话
+rdev plan-b claude
+rdev plan-b web
+rdev plan-b off
+```
+
+B 必须显式启用，**不是 A 的网络故障回退**。B 的执行器获得当前本机用户的完整
+Shell/文件权限，项目路径不是沙箱；方案 A 的共享边界保持原样。若需要 B 也与个人
+文件隔离，应在独立 OS 用户或专用工作机运行本机执行器。
+
+B 使用独立账号和数据卷，不导入或修改远端宿主已有 Claude。`reset` 仅重建 B 容器，
+保留其账号、项目、历史和配置。远端 B 需要可用 Docker，SSH 用户须有 Docker 权限；
+本机无需 Docker、Node、Claude 或额外 App。
+
+完整安装、原生参数、可选安装 Claude、多设备、文件、定时任务和权限说明见
+[Plan B 使用指南](docs/PLAN_B.md)，实测范围见 [Plan B 验收记录](docs/PLAN_B_VALIDATION.md)。
 
 ## 从源码构建
 

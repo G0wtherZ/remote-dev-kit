@@ -1,6 +1,11 @@
 $ErrorActionPreference = "Stop"
 $Target = Join-Path $env:LOCALAPPDATA "RemoteDevKit\app"
 $Exe = Join-Path $Target "rdev.exe"
+$SetupArgs = @("setup") + $args
+if ($args.Count -gt 0 -and $args[0] -eq "--plan-b") {
+    $Rest = @(); if ($args.Count -gt 1) { $Rest = $args[1..($args.Count-1)] }
+    $SetupArgs = @("plan-b", "setup") + $Rest
+}
 if (!(Test-Path (Join-Path $PSScriptRoot "SHA256SUMS")) -or !(Test-Path (Join-Path $PSScriptRoot "assets"))) {
     throw "请从完整安装包运行 setup.ps1，不要单独复制脚本。"
 }
@@ -12,7 +17,7 @@ Get-Content (Join-Path $PSScriptRoot "SHA256SUMS") | ForEach-Object {
 }
 if (Test-Path $Exe) {
     if ((Get-FileHash $Exe -Algorithm SHA256).Hash -eq (Get-FileHash (Join-Path $PSScriptRoot "rdev.exe") -Algorithm SHA256).Hash) {
-        & $Exe setup @args
+        & $Exe @SetupArgs
         exit $LASTEXITCODE
     }
     throw "已有不同版本，未覆盖：$Exe。可在新包目录执行 .\rdev.exe setup；升级前先停止本工具服务并备份私有状态。"
@@ -28,5 +33,5 @@ if (($UserPath -split ';') -notcontains $Target) {
     $env:Path += ";$Target"
 }
 Write-Host "命令已安装：$Exe"
-& $Exe setup @args
+& $Exe @SetupArgs
 exit $LASTEXITCODE

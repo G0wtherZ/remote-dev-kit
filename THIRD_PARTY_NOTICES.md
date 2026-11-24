@@ -19,3 +19,18 @@ identity is included in the source or release packages.
 Package checksums detect corruption; they do not replace publisher signature
 verification. Initial alpha builds are not Developer ID/notarized or Authenticode
 signed. The setup scripts do not disable operating-system protections.
+
+## Independent Plan B
+
+The Plan B orchestration, device stream protocol, SSH executor and web utility
+are implemented in Remote Dev Kit. They do not incorporate cc-desk-tunnel source,
+application, protocol or runtime. That project was a design reference only.
+
+- github.com/creack/pty v1.1.24: MIT, https://github.com/creack/pty .
+- xterm.js (@xterm/xterm 6.0.0), @xterm/addon-fit 0.11.0: MIT,
+  https://github.com/xtermjs/xterm.js . These are terminal renderer libraries,
+  not an agent runtime. Their notices are retained in `web/plan-b/vendor/` and
+  embedded with the page; the npm tarballs were checked against SHA-512 integrity.
+- Optional remote images install official Claude Code separately from npm,
+  currently @anthropic-ai/claude-code 2.1.321; its original terms apply. The CLI is
+  not distributed in rdev archives. Node is part of the optional remote image.

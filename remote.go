@@ -166,6 +166,9 @@ func initRemote(root string) error {
 	return output(probe(root))
 }
 func remoteCommand(args []string) error {
+	if len(args) > 0 && strings.HasPrefix(args[0], "b-") {
+		return bRemote(args)
+	}
 	addRuntimePath()
 	if len(args) == 0 {
 		return errors.New("missing remote operation")
