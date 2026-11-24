@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"github.com/coder/websocket"
 	"io"
 	"net"
@@ -34,6 +35,7 @@ type bMux struct {
 	next    atomic.Uint32
 	closed  bool
 	workers sync.WaitGroup
+	failure error
 }
 type bMuxStream struct {
 	peer       *bMux
@@ -62,13 +64,13 @@ func (m *bMux) send(kind byte, id uint32, data []byte) error {
 	packet[0] = kind
 	binary.BigEndian.PutUint32(packet[1:5], id)
 	copy(packet[5:], data)
-	ctx, cancel := context.WithTimeout(m.ctx, 5*time.Second)
-	defer cancel()
 	m.write.Lock()
 	defer m.write.Unlock()
+	ctx, cancel := context.WithTimeout(m.ctx, 30*time.Second)
+	defer cancel()
 	e := m.ws.Write(ctx, websocket.MessageBinary, packet)
 	if e != nil {
-		go m.Close()
+		go m.fail(fmt.Errorf("device write stalled: %w", e))
 	}
 	return e
 }
@@ -112,11 +114,11 @@ func (m *bMux) Run() error {
 			case <-m.ctx.Done():
 				return
 			case <-ticker.C:
-				ctx, cancel := context.WithTimeout(m.ctx, 8*time.Second)
+				ctx, cancel := context.WithTimeout(m.ctx, 30*time.Second)
 				e := m.ws.Ping(ctx)
 				cancel()
 				if e != nil {
-					m.Close()
+					m.fail(fmt.Errorf("device heartbeat: %w", e))
 					return
 				}
 			}
@@ -125,6 +127,12 @@ func (m *bMux) Run() error {
 	for {
 		kind, packet, e := m.ws.Read(m.ctx)
 		if e != nil {
+			m.mu.Lock()
+			cause := m.failure
+			m.mu.Unlock()
+			if cause != nil {
+				return cause
+			}
 			return e
 		}
 		if kind != websocket.MessageBinary || len(packet) < 5 {
@@ -312,4 +320,13 @@ func (s *bMuxStream) write() {
 			}
 		}
 	}
+}
+
+func (m *bMux) fail(e error) {
+	m.mu.Lock()
+	if m.failure == nil {
+		m.failure = e
+	}
+	m.mu.Unlock()
+	m.Close()
 }

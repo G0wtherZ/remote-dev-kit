@@ -6,6 +6,7 @@ let terminal,
   socket,
   current = "",
   refreshing = false;
+let csrf="";
 const initial = new URLSearchParams(location.hash.slice(1));
 const loginToken = initial.get("token");
 const initialDevice = initial.get("device");
@@ -15,21 +16,11 @@ function message(text) {
   $("status").textContent = text;
 }
 async function api(path, options = {}) {
-  const response = await fetch(path, {
-    credentials: "same-origin",
-    ...options,
-  });
-  if (!response.ok) {
-    let error;
-    try {
-      error = (await response.json()).error;
-    } catch {
-      error = await response.text().catch(() => response.statusText);
-    }
-    throw Error(error || `请求失败 ${response.status}`);
-  }
-  return response.json();
+ const headers=new Headers(options.headers||{});if(csrf)headers.set("X-Rdev-CSRF",csrf);
+ const response=await fetch(path,{credentials:"same-origin",...options,headers});const text=await response.text();let data;try{data=JSON.parse(text)}catch{data={error:text||response.statusText}};
+ if(!response.ok)throw Error(data.error||`请求失败 ${response.status}`);if(data.csrf)csrf=data.csrf;return data;
 }
+
 function post(path, value) {
   return api(path, {
     method: "POST",
@@ -161,7 +152,7 @@ function attach(id) {
   }
   terminal.reset();
   const next = new WebSocket(
-    `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/terminal?session=${encodeURIComponent(id)}`,
+    `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/terminal?session=${encodeURIComponent(id)}`, ["rdev-b-v1",csrf]
   );
   socket = next;
   next.binaryType = "arraybuffer";

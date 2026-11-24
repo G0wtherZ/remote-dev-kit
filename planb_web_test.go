@@ -18,6 +18,7 @@ func TestBWebRequiresTokenAndSameOrigin(t *testing.T) {
 		}
 		if cookie {
 			r.AddCookie(&http.Cookie{Name: app.cookieName(), Value: app.cookie})
+			r.Header.Set("X-Rdev-CSRF", app.csrf())
 		}
 		w := httptest.NewRecorder()
 		app.ServeHTTP(w, r)
@@ -91,5 +92,32 @@ func TestBWebJSONRejectsMultipleValuesAndUnknownKeys(t *testing.T) {
 		if bDecode(httptest.NewRecorder(), r, &out) == nil {
 			t.Fatal("accepted", body)
 		}
+	}
+}
+
+func TestBPortlessLoopbackOriginStillNeedsRequestProof(t *testing.T) {
+	app := &bWeb{config: bWebConfig{ServerID: "0123456789ab", Token: strings.Repeat("a", 64)}, cookie: strings.Repeat("b", 64), closing: context.Background()}
+	request := func(origin string, proof bool) int {
+		r := httptest.NewRequest("POST", "http://127.0.0.1:12345/api/logout", strings.NewReader("{}"))
+		r.Header.Set("Origin", origin)
+		r.AddCookie(&http.Cookie{Name: app.cookieName(), Value: app.cookie})
+		if proof {
+			r.Header.Set("X-Rdev-CSRF", app.csrf())
+		}
+		w := httptest.NewRecorder()
+		app.ServeHTTP(w, r)
+		return w.Code
+	}
+	if request("http://127.0.0.1", false) != 403 {
+		t.Fatal("accepted ambient cookie alone")
+	}
+	if request("http://127.0.0.1", true) != 200 {
+		t.Fatal("rejected proved loopback request")
+	}
+	if request("http://127.0.0.1:4444", true) != 403 {
+		t.Fatal("accepted a different explicit origin")
+	}
+	if request("null", true) != 403 {
+		t.Fatal("accepted opaque origin")
 	}
 }

@@ -18,6 +18,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -44,6 +45,7 @@ type bProfile struct {
 	SkipClaude   bool   `json:"skip_claude,omitempty"`
 	Joined       bool   `json:"joined,omitempty"`
 	Name         string `json:"device_name,omitempty"`
+	setupMux     string
 }
 
 func bRandom(n int) string {
@@ -197,6 +199,9 @@ func (a *App) planB(args []string) error {
 }
 func (c bProfile) sshBase(tty bool) []string {
 	x := []string{"-o", "StrictHostKeyChecking=yes", "-o", "ForwardAgent=no", "-o", "BatchMode=yes", "-o", "ConnectTimeout=20", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3"}
+	if c.setupMux != "" {
+		x = append(x, "-o", "ControlMaster=auto", "-o", "ControlPath="+c.setupMux, "-o", "ControlPersist=30")
+	}
 	if c.SSHConfig != "" {
 		x = append(x, "-F", c.SSHConfig)
 	}
@@ -450,6 +455,19 @@ fi
 	return e
 }
 func (a *App) bProvision(c bProfile) error {
+	if runtime.GOOS != "windows" {
+		dir, e := os.MkdirTemp("", "rdev-bsetup-")
+		if e != nil {
+			return e
+		}
+		defer os.RemoveAll(dir)
+		socket := filepath.Join(dir, "mux")
+		if len(socket) < 95 {
+			c.setupMux = socket
+			defer func() { _ = exec.Command("ssh", sshOptions(c.sshBase(false), []string{"-O", "exit"})...).Run() }()
+		}
+	}
+
 	platform, e := a.bSSH(c, []string{"docker", "info", "--format", "{{.Architecture}}"}, nil, false)
 	if e != nil {
 		return fmt.Errorf("远端需要可用 Docker；不会安装或重启现有 Docker：%w", e)

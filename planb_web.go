@@ -12,6 +12,7 @@ import (
 	"github.com/coder/websocket"
 	"io"
 	"io/fs"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -124,14 +125,9 @@ func (w *bWeb) ServeHTTP(out http.ResponseWriter, r *http.Request) {
 	out.Header().Set("X-Content-Type-Options", "nosniff")
 	out.Header().Set("Referrer-Policy", "no-referrer")
 	out.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; object-src 'none'")
-	if r.Method != "GET" && r.Method != "HEAD" {
-		if r.Header.Get("Origin") != "" {
-			origin, e := url.Parse(r.Header.Get("Origin"))
-			if e != nil || origin.Host != r.Host || origin.Scheme != "http" {
-				http.Error(out, "origin refused", 403)
-				return
-			}
-		}
+	if r.Method != "GET" && r.Method != "HEAD" && !bBrowserOrigin(r) {
+		http.Error(out, "origin refused", 403)
+		return
 	}
 	if r.URL.Path == "/health" {
 		bJSON(out, map[string]any{"protocol": bProtocol})
@@ -146,7 +142,7 @@ func (w *bWeb) ServeHTTP(out http.ResponseWriter, r *http.Request) {
 			return
 		}
 		http.SetCookie(out, &http.Cookie{Name: w.cookieName(), Value: w.cookie, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: 86400})
-		bJSON(out, map[string]bool{"authenticated": true})
+		bJSON(out, map[string]any{"authenticated": true, "csrf": w.csrf()})
 		return
 	}
 	if r.URL.Path == "/api/device" {
@@ -160,6 +156,10 @@ func (w *bWeb) ServeHTTP(out http.ResponseWriter, r *http.Request) {
 	}
 	if !w.authenticated(r) {
 		http.Error(out, "请从 rdev plan-b web 打开入口", 401)
+		return
+	}
+	if r.Method != "GET" && r.Method != "HEAD" && subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Rdev-CSRF")), []byte(w.csrf())) != 1 {
+		http.Error(out, "request token required; reopen rdev plan-b web", 403)
 		return
 	}
 	switch r.URL.Path {
@@ -181,7 +181,7 @@ func (w *bWeb) ServeHTTP(out http.ResponseWriter, r *http.Request) {
 			return
 		}
 		devices := bListDevices()
-		bJSON(out, map[string]any{"sessions": sessions, "devices": devices, "schedules": w.readSchedules(), "protocol": bProtocol})
+		bJSON(out, map[string]any{"sessions": sessions, "devices": devices, "schedules": w.readSchedules(), "protocol": bProtocol, "csrf": w.csrf()})
 	case "/api/sessions":
 		if r.Method != "POST" {
 			http.Error(out, "method", 405)
@@ -320,7 +320,11 @@ func (w *bWeb) terminal(out http.ResponseWriter, r *http.Request) {
 		http.Error(out, "too many terminal viewers", 429)
 		return
 	}
-	conn, e := websocket.Accept(out, r, nil)
+	if !bBrowserOrigin(r) || !strings.Contains(","+strings.ReplaceAll(r.Header.Get("Sec-WebSocket-Protocol"), " ", "")+",", ","+w.csrf()+",") {
+		http.Error(out, "terminal request token required", 403)
+		return
+	}
+	conn, e := websocket.Accept(out, r, &websocket.AcceptOptions{Subprotocols: []string{"rdev-b-v1"}, OriginPatterns: []string{"127.0.0.1", "localhost"}})
 	if e != nil {
 		return
 	}
@@ -390,4 +394,33 @@ func (w *bWeb) terminal(out http.ResponseWriter, r *http.Request) {
 			_ = pty.Resize(size.Rows, size.Cols)
 		}
 	}
+}
+
+func (w *bWeb) csrf() string {
+	m := hmac.New(sha256.New, []byte(w.config.Token))
+	m.Write([]byte("rdev-b-csrf-v1"))
+	return hex.EncodeToString(m.Sum(nil))
+}
+func bBrowserOrigin(r *http.Request) bool {
+	value := r.Header.Get("Origin")
+	if value == "" {
+		return true
+	}
+	origin, e := url.Parse(value)
+	if e != nil || origin.Scheme != "http" {
+		return false
+	}
+	host := r.Host
+	if h, _, e := net.SplitHostPort(host); e == nil {
+		host = h
+	}
+	if origin.Hostname() != host {
+		return false
+	}
+	if origin.Host == r.Host {
+		return true
+	}
+	// Some privacy clients omit the loopback port. Non-ambient request tokens
+	// remain mandatory, including on WebSocket upgrades; opaque origins are denied.
+	return origin.Port() == "" && (host == "127.0.0.1" || host == "localhost")
 }

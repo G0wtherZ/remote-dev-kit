@@ -5,6 +5,7 @@ Uses only generated temporary files. --native-cli uses an isolated temporary
 Claude home and a scripted local Messages API, never a real model/account.
 """
 import argparse
+import atexit
 import base64
 import concurrent.futures
 import hashlib
@@ -25,6 +26,13 @@ conf = '/data/devices/' + profile['device_id'] + '/ssh_config'
 ssh = ['ssh', '-T', '-o', 'StrictHostKeyChecking=yes', '-o', 'ForwardAgent=no', '-o', 'BatchMode=yes']
 if profile.get('ssh_config'):
     ssh += ['-F', profile['ssh_config']]
+if os.name != 'nt':
+    mux_dir = tempfile.TemporaryDirectory(prefix='rdev-b-ssh-')
+    mux_path = str(Path(mux_dir.name) / 'mux')
+    if len(mux_path) < 95:
+        ssh += ['-o', 'ControlMaster=auto', '-o', 'ControlPath='+mux_path, '-o', 'ControlPersist=30']
+        atexit.register(mux_dir.cleanup)
+        atexit.register(lambda: subprocess.run(ssh[:-1] + ['-O','exit',profile['ssh']], capture_output=True, timeout=5))
 ssh += [profile['ssh']]
 checks = []
 
@@ -53,12 +61,12 @@ with tempfile.TemporaryDirectory(prefix='rdev-b-accept-') as directory:
     original = root / '二进制 file.bin'
     original.write_bytes(data)
     staged = '/data/workspace/rdev-accept-' + profile['device_id'] + '.bin'
-    result = remote(['scp', '-q', '-F', conf, 'device:' + str(original), staged])
+    result = remote(['scp', '-q', '-F', conf, 'device:' + str(original), staged], timeout=180)
     good('Mac to VPS SFTP', result.returncode == 0, result.stderr)
     result = remote(['sha256sum', staged])
     good('binary SHA256 integrity', result.stdout.decode().split()[0] == hashlib.sha256(data).hexdigest())
     back = root / '回传.bin'
-    result = remote(['scp', '-q', '-F', conf, staged, 'device:' + str(back)])
+    result = remote(['scp', '-q', '-F', conf, staged, 'device:' + str(back)], timeout=180)
     good('VPS to Mac SFTP', result.returncode == 0 and back.read_bytes() == data, result.stderr)
     remote(['rm', '-f', staged])
     if options.native_cli:
