@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>远端会话 · Remote Dev Kit</title>
+    <link rel="stylesheet" href="vendor/xterm.css" />
+    <link rel="stylesheet" href="style.css" />
+    <script src="vendor/xterm.js" defer></script>
+    <script src="vendor/addon-fit.js" defer></script>
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <header>
+      <h1>Remote Dev Kit</h1>
+      <nav aria-label="协作功能">
+        <button type="button" data-page="terminal" aria-pressed="true">
+          终端</button
+        ><button type="button" data-page="files" aria-pressed="false">
+          文件</button
+        ><button type="button" data-page="schedules" aria-pressed="false">
+          定时任务
+        </button>
+      </nav>
+      <p id="status" role="status">正在连接…</p>
+    </header>
+    <main>
+      <form id="project-form">
+        <label for="device">执行设备</label
+        ><select id="device" required></select
+        ><label for="project">本机项目路径</label
+        ><input
+          id="project"
+          required
+          autocomplete="off"
+          spellcheck="false"
+        /><button type="submit">新建 Claude 会话</button
+        ><button type="button" id="account">登录 Claude</button>
+      </form>
+      <section id="terminal-page" class="page terminal-page">
+        <div class="session-bar">
+          <label for="sessions">会话</label
+          ><select id="sessions">
+            <option value="">选择已有会话</option></select
+          ><button type="button" id="refresh">刷新</button
+          ><button type="button" id="reconnect">接回终端</button>
+        </div>
+        <div id="terminal" role="region" aria-label="Claude 原生终端">
+          <p class="empty" id="terminal-empty">
+            选择设备和本机项目路径，新建或接回远端会话。审批、计划模式和对话历史保留在
+            Claude 原生终端中。
+          </p>
+        </div>
+      </section>
+      <section id="files-page" class="page" hidden>
+        <h2>本机文件</h2>
+        <form id="file-form">
+          <label for="file-path">目录</label
+          ><input
+            id="file-path"
+            autocomplete="off"
+            spellcheck="false"
+            required
+          /><button type="submit">打开目录</button
+          ><button type="button" id="parent">上一级</button
+          ><label class="upload"
+            >上传文件<input type="file" id="upload"
+          /></label>
+        </form>
+        <p id="file-status" role="status">打开项目目录以查看文件。</p>
+        <div class="table-scroll">
+          <table>
+            <caption>
+              所选设备的目录内容
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">名称</th>
+                <th scope="col">大小</th>
+                <th scope="col">修改时间</th>
+                <th scope="col">操作</th>
+              </tr>
+            </thead>
+            <tbody id="files"></tbody>
+          </table>
+        </div>
+      </section>
+      <section id="schedules-page" class="page" hidden>
+        <h2>定时任务</h2>
+        <p>
+          到点后在所选设备的项目中创建原生 Claude
+          会话。设备离线时不会改在服务器执行；需要审批时，可在终端接回处理。
+        </p>
+        <form id="schedule-form">
+          <input type="hidden" id="schedule-id" /><label for="prompt"
+            >任务内容</label
+          ><textarea id="prompt" required maxlength="16384" rows="3"></textarea
+          ><label for="next">首次执行（本机时间）</label
+          ><input type="datetime-local" id="next" required /><label
+            for="interval"
+            >重复间隔（秒；0 表示仅一次）</label
+          ><input
+            type="number"
+            id="interval"
+            value="0"
+            min="0"
+            max="31536000"
+            required
+          /><button type="submit">保存任务</button>
+        </form>
+        <ul id="schedules"></ul>
+      </section>
+    </main>
+    <footer>
+      <span>Plan B · 官方 Claude 在远端，本机执行须先通过 rdev 启用。</span
+      ><button type="button" id="logout">退出网页</button>
+    </footer>
+  </body>
+</html>

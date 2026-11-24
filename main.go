@@ -10,11 +10,15 @@ import (
 	"strings"
 )
 
-const version = "0.1.0-alpha.4"
+const version = "0.1.0-alpha.5"
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, "rdev:", err)
+		var native *bExitStatus
+		if errors.As(err, &native) {
+			os.Exit(native.Code)
+		}
 		os.Exit(1)
 	}
 }
@@ -56,6 +60,8 @@ func run(args []string) error {
 	case "version", "--version":
 		fmt.Println("rdev", version)
 		return nil
+	case "plan-b":
+		return app.planB(args[1:])
 	case "setup":
 		return app.setup(args[1:])
 	case "status", "doctor":
@@ -99,6 +105,7 @@ func run(args []string) error {
 func usage() {
 	fmt.Print(`Remote Dev Kit — 本机入口，远端研发环境
 
+  rdev plan-b help           可选的远端 Harness + 本机执行模式
   rdev setup                 交互设置两端，路径可自定义
   rdev doctor                检查连接、挂载依赖和开发工具
   rdev repair                恢复本工具连接/挂载，不重置系统网络
