@@ -33,7 +33,7 @@ func bRemote(args []string) error {
 	case "b-web-config":
 		return bWriteWebConfig()
 	case "b-handshake":
-		return output(map[string]any{"protocol": bProtocol, "version": version, "capabilities": []string{"native-claude", "ssh-device", "sftp", "tmux", "headless", "web-terminal", "schedules", "files", "device-mux-v1"}})
+		return output(map[string]any{"protocol": bProtocol, "version": version, "capabilities": []string{"native-claude", "ssh-device", "sftp", "tmux", "headless", "web-terminal", "schedules", "files", "device-yamux-v1"}})
 	case "b-proxy":
 		if len(args) != 2 || !bDeviceSocketPath(args[1]) {
 			return errors.New("非法 B 设备 socket")

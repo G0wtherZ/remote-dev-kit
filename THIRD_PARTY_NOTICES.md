@@ -34,3 +34,7 @@ application, protocol or runtime. That project was a design reference only.
 - Optional remote images install official Claude Code separately from npm,
   currently @anthropic-ai/claude-code 2.1.321; its original terms apply. The CLI is
   not distributed in rdev archives. Node is part of the optional remote image.
+- github.com/hashicorp/yamux v0.1.2: MPL-2.0,
+  https://github.com/hashicorp/yamux/tree/v0.1.2 . The unmodified library provides
+  reliable stream multiplexing inside the private SSH transport. Its source and
+  MPL notice remain available upstream and its license is collected in releases.

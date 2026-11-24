@@ -421,7 +421,7 @@ func (a *App) bOn(c bProfile) error {
 	cmd.Stdout = log
 	cmd.Stderr = log
 	if controlErr != nil {
-		if e = a.bPreflight(c, "device-mux-v1"); e != nil {
+		if e = a.bPreflight(c, "device-yamux-v1"); e != nil {
 			return e
 		}
 		if e = cmd.Start(); e != nil {

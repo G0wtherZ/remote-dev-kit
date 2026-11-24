@@ -49,7 +49,7 @@ func bTestMuxTransfer(t *testing.T, fragmented bool) {
 		if e != nil {
 			return
 		}
-		peer := bNewMux(ctx, ws, nil)
+		peer := bNewMux(ctx, websocket.NetConn(ctx, ws, websocket.MessageBinary), nil)
 		remote <- peer
 		_ = peer.Run()
 		peer.workers.Wait()
@@ -59,7 +59,7 @@ func bTestMuxTransfer(t *testing.T, fragmented bool) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	local := bNewMux(ctx, ws, func() (net.Conn, error) {
+	local := bNewMux(ctx, websocket.NetConn(ctx, ws, websocket.MessageBinary), func() (net.Conn, error) {
 		conn, e := net.Dial("tcp", target.Addr().String())
 		if e != nil {
 			return nil, e
