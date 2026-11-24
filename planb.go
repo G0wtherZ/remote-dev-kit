@@ -163,6 +163,15 @@ func (a *App) planB(args []string) error {
 			return e
 		}
 		return a.bRunContainer(c)
+	case "repair":
+		if e = a.bNormalizeProxy(&c); e != nil {
+			return e
+		}
+		if e = a.bSave(c); e != nil {
+			return e
+		}
+		fmt.Println("B 私有连接配置已检查；如执行器已在线，off/on 后使用新配置。")
+		return nil
 	case "connection":
 		return a.bExport(c, args[1:])
 	case "install-claude":
@@ -362,6 +371,12 @@ func (a *App) bSetup(args []string) error {
 				return e
 			}
 		}
+	}
+	if e = a.bSave(c); e != nil {
+		return e
+	}
+	if e = a.bNormalizeProxy(&c); e != nil {
+		return e
 	}
 	if e = a.bSave(c); e != nil {
 		return e

@@ -85,8 +85,11 @@ UTF-8。SFTP 以二进制传输，Windows 磁盘路径映射为 `/C:/...`。USB 
 ```sh
 rdev plan-b on --trust-local-user
 rdev plan-b status
+rdev plan-b repair                  # 只检查/修复 B 私有连接配置
 rdev plan-b off
 ```
+
+setup/repair 对已知回环 `nc -X 5 -x` SOCKS 配置会在 B 私有 SSH Include 中改用本项目代理，保留原 SSH 配置与主机验证；不会改系统 VPN/DNS。
 
 setup 不启用本机执行；on 是明确的当前 OS 用户通用执行授权。没有系统登录自启。
 on 后连接进程会持续到 off，并在私网断开时尝试恢复连接。断线会结束活动的本机
