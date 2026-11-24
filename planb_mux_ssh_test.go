@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -73,7 +74,7 @@ func TestBIndependentMuxWithRealSSHAndSFTP(t *testing.T) {
 	}
 	defer files.Close()
 	data := bytes.Repeat([]byte{0, 255, 8, 9}, 512*1024)
-	name := filepath.Join(root, "mux-SFTP.bin")
+	name := bSFTPPath(filepath.Join(root, "mux-SFTP.bin"), runtime.GOOS)
 	done := make(chan error, 1)
 	go func() {
 		f, e := files.Create(name)
