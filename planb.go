@@ -29,23 +29,25 @@ const bProtocol = 1
 var bIDPattern = regexp.MustCompile(`^[a-f0-9]{12}$`)
 
 type bProfile struct {
-	Protocol     int    `json:"protocol"`
-	ServerID     string `json:"server_id"`
-	DeviceID     string `json:"device_id"`
-	SSH          string `json:"ssh"`
-	SSHConfig    string `json:"ssh_config,omitempty"`
-	RemoteRoot   string `json:"remote_root"`
-	Container    string `json:"container"`
-	Image        string `json:"image"`
-	ControlPort  int    `json:"control_port"`
-	WebPort      int    `json:"web_port"`
-	ControlToken string `json:"control_token"`
-	Authorized   bool   `json:"local_execution_authorized"`
-	WebToken     string `json:"web_token"`
-	SkipClaude   bool   `json:"skip_claude,omitempty"`
-	Joined       bool   `json:"joined,omitempty"`
-	Name         string `json:"device_name,omitempty"`
-	setupMux     string
+	Protocol       int    `json:"protocol"`
+	ServerID       string `json:"server_id"`
+	DeviceID       string `json:"device_id"`
+	SSH            string `json:"ssh"`
+	SSHConfig      string `json:"ssh_config,omitempty"`
+	RemoteRoot     string `json:"remote_root"`
+	Container      string `json:"container"`
+	Image          string `json:"image"`
+	ControlPort    int    `json:"control_port"`
+	WebPort        int    `json:"web_port"`
+	ControlToken   string `json:"control_token"`
+	Authorized     bool   `json:"local_execution_authorized"`
+	WebToken       string `json:"web_token"`
+	SkipClaude     bool   `json:"skip_claude,omitempty"`
+	Joined         bool   `json:"joined,omitempty"`
+	Name           string `json:"device_name,omitempty"`
+	setupMux       string
+	Certificate    string `json:"device_certificate,omitempty"`
+	forwardAddress string
 }
 
 func bRandom(n int) string {
@@ -284,6 +286,7 @@ func (a *App) bSetup(args []string) error {
 			c.RemoteRoot = link.RemoteRoot
 			c.WebPort = link.WebPort
 			c.WebToken = link.WebToken
+			c.Certificate = link.Certificate
 			c.SSH = link.SSH
 			c.Joined = true
 		}
@@ -421,7 +424,7 @@ func (a *App) bOn(c bProfile) error {
 	cmd.Stdout = log
 	cmd.Stderr = log
 	if controlErr != nil {
-		if e = a.bPreflight(c, "device-yamux-v1"); e != nil {
+		if e = a.bPreflight(c, "device-tls-forward-v1"); e != nil {
 			return e
 		}
 		if e = cmd.Start(); e != nil {
@@ -537,6 +540,17 @@ mv "$tmp" "$p/build/rdev"
 	}
 	webConfig, _ := json.Marshal(bWebConfig{Token: c.WebToken, ServerID: c.ServerID})
 	if _, e = a.bSSH(c, []string{"docker", "run", "--rm", "-i", "--entrypoint", "rdev", "-v", c.RemoteRoot + "/data:/data", c.Image, "remote", "b-web-config"}, webConfig, false); e != nil {
+		return e
+	}
+	cert, e := a.bSSH(c, []string{"docker", "run", "--rm", "--entrypoint", "rdev", "-v", c.RemoteRoot + "/data:/data", c.Image, "remote", "b-device-cert"}, nil, false)
+	if e != nil {
+		return e
+	}
+	c.Certificate = string(cert)
+	if _, e = bTLSConfig(c); e != nil {
+		return e
+	}
+	if e = a.bSave(c); e != nil {
 		return e
 	}
 	if e = a.bRunContainer(c); e != nil {

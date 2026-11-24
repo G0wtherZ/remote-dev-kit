@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/subtle"
+	"crypto/tls"
 	"embed"
 	"encoding/hex"
 	"encoding/json"
@@ -63,6 +64,9 @@ func bWriteWebConfig() error {
 		return e
 	}
 	b, _ := json.Marshal(c)
+	if e := bEnsureTLS(); e != nil {
+		return e
+	}
 	return atomicWrite("/data/config/web.json", b, 0600)
 }
 func bWebServe() error {
@@ -79,7 +83,7 @@ func bWebServe() error {
 	m := hmac.New(sha256.New, []byte(c.Token))
 	m.Write([]byte("rdev-b-web-session-v1"))
 	app := &bWeb{config: c, cookie: hex.EncodeToString(m.Sum(nil)), closing: ctx, ttySlots: make(chan struct{}, 16)}
-	server := &http.Server{Addr: "0.0.0.0:8788", Handler: app, ReadHeaderTimeout: 5 * time.Second, MaxHeaderBytes: 16 * 1024, IdleTimeout: 60 * time.Second}
+	server := &http.Server{Addr: "0.0.0.0:8788", Handler: app, ReadHeaderTimeout: 5 * time.Second, MaxHeaderBytes: 16 * 1024, IdleTimeout: 60 * time.Second, TLSConfig: &tls.Config{MinVersion: tls.VersionTLS13}, TLSNextProto: map[string]func(*http.Server, *tls.Conn, http.Handler){}}
 	go func() {
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -87,7 +91,7 @@ func bWebServe() error {
 		server.Shutdown(shutdown)
 	}()
 	go app.scheduler(ctx)
-	e = server.ListenAndServe()
+	e = server.ListenAndServeTLS("/data/config/device.crt", "/data/config/device.key")
 	if errors.Is(e, http.ErrServerClosed) {
 		return nil
 	}

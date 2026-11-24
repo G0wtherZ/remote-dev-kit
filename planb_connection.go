@@ -10,14 +10,15 @@ import (
 )
 
 type bConnection struct {
-	Protocol   int    `json:"protocol"`
-	ServerID   string `json:"server_id"`
-	SSH        string `json:"ssh"`
-	RemoteRoot string `json:"remote_root"`
-	Container  string `json:"container"`
-	Image      string `json:"image"`
-	WebPort    int    `json:"web_port"`
-	WebToken   string `json:"web_token"`
+	Protocol    int    `json:"protocol"`
+	ServerID    string `json:"server_id"`
+	SSH         string `json:"ssh"`
+	RemoteRoot  string `json:"remote_root"`
+	Container   string `json:"container"`
+	Image       string `json:"image"`
+	WebPort     int    `json:"web_port"`
+	WebToken    string `json:"web_token"`
+	Certificate string `json:"device_certificate"`
 }
 
 func (c bConnection) validate() error {
@@ -39,7 +40,7 @@ func (a *App) bExport(c bProfile, args []string) error {
 	if e != nil {
 		return e
 	}
-	link := bConnection{Protocol: bProtocol, ServerID: c.ServerID, SSH: c.SSH, RemoteRoot: c.RemoteRoot, Container: c.Container, Image: c.Image, WebPort: c.WebPort, WebToken: c.WebToken}
+	link := bConnection{Protocol: bProtocol, ServerID: c.ServerID, SSH: c.SSH, RemoteRoot: c.RemoteRoot, Container: c.Container, Image: c.Image, WebPort: c.WebPort, WebToken: c.WebToken, Certificate: c.Certificate}
 	b, e := json.MarshalIndent(link, "", "  ")
 	if e != nil {
 		return e

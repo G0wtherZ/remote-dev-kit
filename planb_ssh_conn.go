@@ -2,38 +2,37 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"errors"
 	"fmt"
-	"io"
 	"net"
+	"os"
 	"os/exec"
+	"strconv"
 	"sync"
 	"time"
 )
 
-type bSSHConn struct {
-	command *exec.Cmd
-	input   io.WriteCloser
-	output  io.ReadCloser
+type bForward struct {
+	address string
+	cmd     *exec.Cmd
+	done    chan error
 	once    sync.Once
 	cleanup func()
 }
 
-func (a *App) bDialSSH(ctx context.Context, c bProfile) (net.Conn, error) {
-	cmd := exec.CommandContext(ctx, "ssh", sshOptions(c.sshBase(false), []string{"-W", fmt.Sprintf("127.0.0.1:%d", c.WebPort)})...)
+func (a *App) bStartForward(ctx context.Context, c bProfile) (*bForward, error) {
+	port, e := freePort()
+	if e != nil {
+		return nil, e
+	}
+	address := "127.0.0.1:" + strconv.Itoa(port)
+	opts := []string{"-N", "-o", "ExitOnForwardFailure=yes", "-L", address + fmt.Sprintf(":127.0.0.1:%d", c.WebPort)}
+	cmd := exec.CommandContext(ctx, "ssh", sshOptions(c.sshBase(false), opts)...)
 	privateProcess(cmd)
 	bHideWindow(cmd)
-	input, e := cmd.StdinPipe()
-	if e != nil {
-		return nil, e
-	}
-	output, e := cmd.StdoutPipe()
-	if e != nil {
-		input.Close()
-		return nil, e
-	}
+	cmd.Stderr = os.Stderr
 	if e = cmd.Start(); e != nil {
-		input.Close()
-		output.Close()
 		return nil, e
 	}
 	cleanup, e := bTrackProcess(cmd)
@@ -42,30 +41,74 @@ func (a *App) bDialSSH(ctx context.Context, c bProfile) (net.Conn, error) {
 		cmd.Wait()
 		return nil, e
 	}
-	return &bSSHConn{command: cmd, input: input, output: output, cleanup: cleanup}, nil
+	forward := &bForward{address: address, cmd: cmd, done: make(chan error, 1), cleanup: cleanup}
+	go func() { forward.done <- cmd.Wait() }()
+	return forward, nil
 }
-func (c *bSSHConn) Read(b []byte) (int, error)  { return c.output.Read(b) }
-func (c *bSSHConn) Write(b []byte) (int, error) { return c.input.Write(b) }
-func (c *bSSHConn) Close() error {
+func (f *bForward) Close() {
+	f.once.Do(func() { f.cleanup(); stopProcess(f.cmd); killProcessTree(f.cmd) })
+}
+
+type bForwardConn struct {
+	net.Conn
+	forward *bForward
+	once    sync.Once
+}
+
+func (c *bForwardConn) Close() error {
+	e := c.Conn.Close()
 	c.once.Do(func() {
-		c.input.Close()
-		c.output.Close()
-		c.cleanup()
-		stopProcess(c.command)
-		killProcessTree(c.command)
-		c.command.Wait()
+		if c.forward != nil {
+			c.forward.Close()
+		}
 	})
-	return nil
+	return e
 }
-func (*bSSHConn) LocalAddr() net.Addr  { return bSSHAddr("local-private-ssh") }
-func (*bSSHConn) RemoteAddr() net.Addr { return bSSHAddr("remote-b-loopback") }
-
-// HTTP/WebSocket contexts own cancellation and close the SSH process on timeout.
-func (*bSSHConn) SetDeadline(time.Time) error      { return nil }
-func (*bSSHConn) SetReadDeadline(time.Time) error  { return nil }
-func (*bSSHConn) SetWriteDeadline(time.Time) error { return nil }
-
-type bSSHAddr string
-
-func (bSSHAddr) Network() string  { return "private-ssh" }
-func (a bSSHAddr) String() string { return string(a) }
+func (a *App) bDialSSH(ctx context.Context, c bProfile) (net.Conn, error) {
+	config, e := bTLSConfig(c)
+	if e != nil {
+		return nil, e
+	}
+	var forward *bForward
+	address := c.forwardAddress
+	if address == "" {
+		forward, e = a.bStartForward(ctx, c)
+		if e != nil {
+			return nil, e
+		}
+		address = forward.address
+	}
+	fail := func(e error) (net.Conn, error) {
+		if forward != nil {
+			forward.Close()
+		}
+		return nil, e
+	}
+	for i := 0; i < 300; i++ {
+		if ctx.Err() != nil {
+			return fail(ctx.Err())
+		}
+		if forward != nil {
+			select {
+			case err := <-forward.done:
+				return fail(fmt.Errorf("私网 SSH 转发退出：%v", err))
+			default:
+			}
+		}
+		raw, err := net.DialTimeout("tcp", address, 200*time.Millisecond)
+		if err != nil {
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+		secured := tls.Client(raw, config)
+		handshake, cancel := context.WithTimeout(ctx, 15*time.Second)
+		err = secured.HandshakeContext(handshake)
+		cancel()
+		if err != nil {
+			raw.Close()
+			return fail(fmt.Errorf("B 后端 TLS 身份验证失败：%w", err))
+		}
+		return &bForwardConn{Conn: secured, forward: forward}, nil
+	}
+	return fail(errors.New("SSH 本地转发未就绪"))
+}

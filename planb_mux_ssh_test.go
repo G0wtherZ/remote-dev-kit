@@ -68,6 +68,13 @@ func TestBIndependentMuxWithRealSSHAndSFTP(t *testing.T) {
 		t.Fatal(e)
 	}
 	defer client.Close()
+	for i := 0; i < 5; i++ {
+		extra, e := ssh.Dial("tcp", broker.Addr().String(), &ssh.ClientConfig{User: "rdev-device", Auth: []ssh.AuthMethod{ssh.PublicKeys(key)}, HostKeyCallback: ssh.FixedHostKey(host.PublicKey()), Timeout: time.Second})
+		if e != nil {
+			t.Fatal("second tunnel", e)
+		}
+		extra.Close()
+	}
 	files, e := sftp.NewClient(client)
 	if e != nil {
 		t.Fatal(e)

@@ -84,10 +84,11 @@ with tempfile.TemporaryDirectory(prefix='rdev-b-accept-') as directory:
                 def do_HEAD(self): self.send_response(200); self.end_headers()
                 def do_POST(self):
                     request = json.loads(self.rfile.read(int(self.headers.get('Content-Length', '0'))))
-                    if self.path.endswith('/count_tokens'):
+                    request_path = self.path.split('?',1)[0]
+                    if request_path.endswith('/count_tokens'):
                         self.send_response(200); self.send_header('Content-Type','application/json'); self.end_headers()
                         self.wfile.write(b'{"input_tokens":100}'); return
-                    if not self.path.endswith('/messages'):
+                    if not request_path.endswith('/messages'):
                         self.send_response(404); self.end_headers(); return
                     user = request.get('messages', [])[-1:]
                     results = [v for m in user if m.get('role') == 'user' and isinstance(m.get('content'), list)

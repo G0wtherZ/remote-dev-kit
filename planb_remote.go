@@ -30,10 +30,17 @@ func bRemote(args []string) error {
 	switch args[0] {
 	case "b-idle":
 		return bWebServe()
+	case "b-device-cert":
+		b, e := os.ReadFile("/data/config/device.crt")
+		if e != nil {
+			return e
+		}
+		_, e = os.Stdout.Write(b)
+		return e
 	case "b-web-config":
 		return bWriteWebConfig()
 	case "b-handshake":
-		return output(map[string]any{"protocol": bProtocol, "version": version, "capabilities": []string{"native-claude", "ssh-device", "sftp", "tmux", "headless", "web-terminal", "schedules", "files", "device-yamux-v1"}})
+		return output(map[string]any{"protocol": bProtocol, "version": version, "capabilities": []string{"native-claude", "ssh-device", "sftp", "tmux", "headless", "web-terminal", "schedules", "files", "device-tls-forward-v1"}})
 	case "b-proxy":
 		if len(args) != 2 || !bDeviceSocketPath(args[1]) {
 			return errors.New("非法 B 设备 socket")

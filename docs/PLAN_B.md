@@ -135,9 +135,9 @@ reset 检查容器归属，重建运行容器而保留整个数据卷。活动�
 新助手缺少能力/协议不兼容时会提示更新，不会为了“恢复”删除账号或使用 A 自动回退。
 
 远端仅在 `127.0.0.1:<web-port>` 发布容器端口（默认 18788，可在首次 setup 用
-`--web-port` 指定）。设备流量和网页访问均经已验证的 SSH，容器内不挂 Docker socket，
+`--web-port` 指定）。设备流量和网页访问均经已验证的 SSH 端口转发，内部 TLS 只信任从该 SSH 验证并保存的后端证书，容器内不挂 Docker socket，
 不启用 privileged/host network/FUSE。长驻容器以普通用户运行并移除全部 capabilities。
-初始化辅助进程只处理本工具标记的数据目录。MAC 的 Docker Desktop 也使用普通
+初始化辅助进程只处理本工具标记的数据目录。macOS 的 Docker Desktop 也使用普通
 TCP 端口映射，不依赖跨宿主机/VM 共享 Unix socket。
 
 ## 能力与验证口径
