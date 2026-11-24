@@ -49,11 +49,12 @@ dest.write_bytes(data)
                     "TMPDIR": str(self.root), "PATH": str(tools) + ":" + os.environ["PATH"],
                     "RDEV_TEST_ARCHIVE": str(ARCHIVE)}
 
-    def invoke(self, mode=""):
+    def invoke(self, mode="", setup_args=None):
         env = {**self.env, "RDEV_TEST_TRANSPORT": mode}
-        return subprocess.run(["/bin/bash", str(ROOT / "install.sh"), "--yes", "--plan",
-                               "--ssh", "dev@example.org", "--local-root", str(self.home / "Shared 资料"),
-                               "--remote-root", "~/Cloud Lab", "--no-share"],
+        if setup_args is None:
+            setup_args = ["--yes", "--plan", "--ssh", "dev@example.org", "--local-root",
+                          str(self.home / "Shared 资料"), "--remote-root", "~/Cloud Lab", "--no-share"]
+        return subprocess.run(["/bin/bash", str(ROOT / "install.sh")] + setup_args,
                               env=env, text=True, capture_output=True, timeout=60)
 
     def assert_clean_download(self):
@@ -74,6 +75,14 @@ dest.write_bytes(data)
         self.assertEqual(repeated.returncode, 0, repeated.stdout + repeated.stderr)
         self.assertIn('"changes"', repeated.stdout)
         self.assertEqual((self.home / ".zprofile").read_text().count("# remote-dev-kit PATH"), 1)
+        self.assert_clean_download()
+
+    def test_plan_b_install_routes_to_independent_setup(self):
+        result = self.invoke(setup_args=["--plan-b", "--help"])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Usage of plan-b setup", result.stderr)
+        self.assertTrue((self.home / ".local/bin/rdev").is_symlink())
+        self.assertFalse((self.home / ".rdev").exists())
         self.assert_clean_download()
 
     def test_bad_checksum_never_installs(self):

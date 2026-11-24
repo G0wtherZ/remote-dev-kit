@@ -20,6 +20,7 @@ import textwrap
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--state-dir', type=Path, default=Path.home() / '.rdev')
 parser.add_argument('--native-cli', action='store_true')
+parser.add_argument('--client-binary', type=Path, help='also verify the installed headless CLI entry, without model calls')
 options = parser.parse_args()
 profile = json.loads((options.state_dir / 'plan-b/profile.json').read_text())
 conf = '/data/devices/' + profile['device_id'] + '/ssh_config'
@@ -48,6 +49,12 @@ def good(name, condition, details=''):
 
 with tempfile.TemporaryDirectory(prefix='rdev-b-accept-') as directory:
     root = Path(directory)
+    if options.client_binary:
+        result = subprocess.run([str(options.client_binary.resolve()), '--state-dir', str(options.state_dir),
+                                 'plan-b', 'agent', '--version'], capture_output=True, timeout=90)
+        good('headless client entry without terminal or model login',
+             result.returncode == 0 and b'Claude Code' in result.stdout,
+             result.stdout.decode(errors='replace') + result.stderr.decode(errors='replace'))
     line = "cat; printf ' ERR中文' >&2; exit 7"
     result = remote(['ssh', '-F', conf, 'device', line], b'INPUT\x00\xff')
     good('stdin/stdout/stderr/exit over actual VPS-Mac link',

@@ -201,7 +201,11 @@ func (a *App) planB(args []string) error {
 		if _, e = a.bSSH(c, []string{"docker", "exec", "-i", c.Container, "rdev", "remote", "b-session-prepare"}, input, false); e != nil {
 			return e
 		}
-		command := []string{"docker", "exec", "-it", c.Container, "rdev", "remote", "b-terminal", request.ID, args[0]}
+		mode := "-it"
+		if args[0] == "agent" {
+			mode = "-i"
+		}
+		command := []string{"docker", "exec", mode, c.Container, "rdev", "remote", "b-terminal", request.ID, args[0]}
 		command = append(command, args[1:]...)
 		return a.bSSHStream(c, command, args[0] != "agent")
 	default:
@@ -250,6 +254,9 @@ func (a *App) bSetup(args []string) error {
 	webPort := f.Int("web-port", 18788, "远端回环 Web 端口")
 	without := f.Bool("without-claude", false, "仅安装桥接；用户可后置安装 B 自己的 Claude")
 	if e := f.Parse(args); e != nil {
+		if errors.Is(e, flag.ErrHelp) {
+			return nil
+		}
 		return e
 	}
 	if e := a.prepareState(); e != nil {
